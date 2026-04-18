@@ -157,20 +157,20 @@ impl FromStr for Urn {
 impl<'a> TryFrom<&'a str> for Urn {
     type Error = Error;
     fn try_from(value: &'a str) -> Result<Self> {
-        Ok(Self(UrnSlice::try_from(value.to_owned())?))
+        UrnSlice::try_from(value).map(UrnSlice::into_owned)
     }
 }
 
 impl<'a> TryFrom<&'a mut str> for Urn {
     type Error = Error;
     fn try_from(value: &'a mut str) -> Result<Self> {
-        Ok(Self(UrnSlice::try_from(value.to_owned())?))
+        UrnSlice::try_from(value).map(UrnSlice::into_owned)
     }
 }
 
 impl TryFrom<String> for Urn {
     type Error = Error;
     fn try_from(value: String) -> Result<Self> {
-        Ok(Self(UrnSlice::try_from(value)?))
+        UrnSlice::try_from(value).map(UrnSlice::into_owned)
     }
 }

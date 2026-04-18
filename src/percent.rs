@@ -225,41 +225,43 @@ const fn to_hex(n: u8) -> [u8; 2] {
 fn encode(s: &str, kind: PctEncoded) -> String {
     let mut ret = String::with_capacity(s.len());
     let mut buf = [0u8; 8];
-    for (i, ch) in s.chars().enumerate() {
+    let bytes = s.as_bytes();
+    for (i, ch) in s.char_indices() {
         #[allow(clippy::match_same_arms)]
-        match (kind, ch) {
+        let passthrough = match (kind, ch) {
             // ? and / are reserved chars in RFC2141, so they can be included
-            (PctEncoded::FComponent, '?') => {}
-            (PctEncoded::QComponent, '?') if i != 0 => {}
+            (PctEncoded::FComponent, '?') => true,
+            (PctEncoded::QComponent, '?') if i != 0 => true,
             (PctEncoded::RComponent, '?')
-                if i != 0 && !matches!(s.chars().nth(i + 1), Some('=')) => {}
-            (PctEncoded::FComponent, '/') => {}
+                if i != 0 && bytes.get(i + 1) != Some(&b'=') => true,
+            (PctEncoded::FComponent, '/') => true,
             // For RFC2141 compatibility, omit / in NSS
-            (PctEncoded::RComponent | PctEncoded::QComponent, '/') if i != 0 => {}
+            (PctEncoded::RComponent | PctEncoded::QComponent, '/') if i != 0 => true,
             // & is reserved in RFC2141, but ~ isn't, omit it
             (
                 PctEncoded::RComponent | PctEncoded::QComponent | PctEncoded::FComponent,
                 '-' | '.' | '_' | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '='
                 | ':' | '@',
-            ) => {}
+            ) => true,
             // In NSS, omit both ~ and &
             (
                 PctEncoded::Nss,
                 '-' | '.' | '_' | '!' | '$' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' | ':'
                 | '@',
-            ) => {}
-            (_, ch) if ch.is_ascii_alphanumeric() => {}
-            (_, ch) => {
-                for byte in ch.encode_utf8(&mut buf).as_bytes() {
-                    ret.push('%');
-                    for digit in to_hex(*byte) {
-                        ret.push(digit as char);
-                    }
+            ) => true,
+            (_, ch) if ch.is_ascii_alphanumeric() => true,
+            _ => false,
+        };
+        if passthrough {
+            ret.push(ch);
+        } else {
+            for byte in ch.encode_utf8(&mut buf).as_bytes() {
+                ret.push('%');
+                for digit in to_hex(*byte) {
+                    ret.push(digit as char);
                 }
-                continue;
             }
         }
-        ret.push(ch);
     }
     ret
 }

@@ -293,6 +293,22 @@ impl<'a> UrnSlice<'a> {
             .end
     }
 
+    /// Consume self, returning an owned `Urn`. Moves buffer when already owned.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn into_owned(self) -> Urn {
+        Urn(UrnSlice {
+            urn: match self.urn {
+                TriCow::Owned(s) => TriCow::Owned(s),
+                TriCow::Borrowed(s) => TriCow::Owned(s.to_owned()),
+                TriCow::MutBorrowed(s) => TriCow::Owned(s.to_owned()),
+            },
+            nid_len: self.nid_len,
+            nss_len: self.nss_len,
+            r_component_len: self.r_component_len,
+            q_component_len: self.q_component_len,
+        })
+    }
+
     fn f_component_start(&self) -> Option<usize> {
         // ...[#<f-component>]
         Some(self.pre_f_component_end())
