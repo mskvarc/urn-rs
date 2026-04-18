@@ -74,9 +74,13 @@ fn is_valid_nid(s: &str) -> bool {
     // ldh = alphanum / "-"
     //
     // RFC2141 additionally allows NIDs to end with -
-    (2..=32).contains(&s.len())
-        && !s.starts_with('-')
-        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    let bytes = s.as_bytes();
+    if bytes.len() < 2 || bytes.len() > 32 || bytes[0] == b'-' {
+        return false;
+    }
+    bytes
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
 const URN_PREFIX: &str = "urn:";
@@ -734,49 +738,74 @@ impl<'a> UrnBuilder<'a> {
     /// In case of a validation failure, returns an error specifying the component that failed
     /// validation
     pub fn build(self) -> Result<Urn> {
-        fn cow_push_str(c: &mut TriCow, s: &str) {
-            if let TriCow::Owned(c) = c {
-                c.push_str(s);
-            } else {
-                unreachable!("cow must be owned to use this function")
-            }
-        }
         if !is_valid_nid(self.nid) {
             return Err(Error::InvalidNid);
         }
-        let mut s = TriCow::Owned(URN_PREFIX.to_owned());
-        {
-            let s = &mut s;
-            cow_push_str(s, self.nid);
-            cow_push_str(s, NID_NSS_SEPARATOR);
-            let nss_start = s.len();
-            cow_push_str(s, self.nss);
-            if self.nss.is_empty() || parse_nss(s, nss_start)? != s.len() {
-                return Err(Error::InvalidNss);
+        if self.nss.is_empty() {
+            return Err(Error::InvalidNss);
+        }
+        if matches!(self.r_component, Some("")) {
+            return Err(Error::InvalidRComponent);
+        }
+        if matches!(self.q_component, Some("")) {
+            return Err(Error::InvalidQComponent);
+        }
+
+        // Build the full URN string directly, then validate in a single pass.
+        let total = URN_PREFIX.len()
+            + self.nid.len()
+            + NID_NSS_SEPARATOR.len()
+            + self.nss.len()
+            + self.r_component.map_or(0, |x| RCOMP_PREFIX.len() + x.len())
+            + self.q_component.map_or(0, |x| QCOMP_PREFIX.len() + x.len())
+            + self.f_component.map_or(0, |x| FCOMP_PREFIX.len() + x.len());
+        let mut buf = String::with_capacity(total);
+        buf.push_str(URN_PREFIX);
+        buf.push_str(self.nid);
+        buf.push_str(NID_NSS_SEPARATOR);
+        let nss_start = buf.len();
+        buf.push_str(self.nss);
+        let nss_end = buf.len();
+
+        let rc_range = self.r_component.map(|rc| {
+            buf.push_str(RCOMP_PREFIX);
+            let start = buf.len();
+            buf.push_str(rc);
+            start..buf.len()
+        });
+        let qc_range = self.q_component.map(|qc| {
+            buf.push_str(QCOMP_PREFIX);
+            let start = buf.len();
+            buf.push_str(qc);
+            start..buf.len()
+        });
+        let fc_range = self.f_component.map(|fc| {
+            buf.push_str(FCOMP_PREFIX);
+            let start = buf.len();
+            buf.push_str(fc);
+            start..buf.len()
+        });
+
+        let mut s = TriCow::Owned(buf);
+        // Each validator stops at the first character not valid for its component
+        // (e.g. `?+` ends nss, `?=` / `#` end rc, `#` ends qc). The expected stop
+        // position equals the end of the pushed segment, so mismatches mean invalid content.
+        if parse_nss(&mut s, nss_start)? != nss_end {
+            return Err(Error::InvalidNss);
+        }
+        if let Some(range) = rc_range.as_ref() {
+            if parse_r_component(&mut s, range.start)? != range.end {
+                return Err(Error::InvalidRComponent);
             }
-            if let Some(rc) = self.r_component {
-                cow_push_str(s, RCOMP_PREFIX);
-                let rc_start = s.len();
-                cow_push_str(s, rc);
-                if rc.is_empty() || parse_r_component(s, rc_start)? != s.len() {
-                    return Err(Error::InvalidRComponent);
-                }
+        }
+        if let Some(range) = qc_range.as_ref() {
+            if parse_q_component(&mut s, range.start)? != range.end {
+                return Err(Error::InvalidQComponent);
             }
-            if let Some(qc) = self.q_component {
-                cow_push_str(s, QCOMP_PREFIX);
-                let qc_start = s.len();
-                cow_push_str(s, qc);
-                if qc.is_empty() || parse_q_component(s, qc_start)? != s.len() {
-                    return Err(Error::InvalidQComponent);
-                }
-            }
-            if let Some(fc) = self.f_component {
-                cow_push_str(s, FCOMP_PREFIX);
-                let fc_start = s.len();
-                cow_push_str(s, fc);
-                if parse_f_component(s, fc_start)? != s.len() {
-                    return Err(Error::InvalidFComponent);
-                }
+        }
+        if let Some(range) = fc_range.as_ref() {
+            if parse_f_component(&mut s, range.start)? != range.end {
+                return Err(Error::InvalidFComponent);
             }
         }
         Ok(Urn(UrnSlice {

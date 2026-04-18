@@ -1,5 +1,5 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::borrow::{Cow, ToOwned};
+use alloc::borrow::Cow;
 #[cfg(feature = "std")]
 use std::borrow::Cow;
 
@@ -42,8 +42,7 @@ impl<'de> serde::Deserialize<'de> for Urn {
     where
         D: serde::Deserializer<'de>,
     {
-        #[allow(clippy::redundant_clone)]
-        Ok(UrnSlice::deserialize(de)?.to_owned())
+        UrnSlice::deserialize(de).map(UrnSlice::into_owned)
     }
 }
 

@@ -97,10 +97,27 @@ impl TriCow<'_> {
     where
         R: Clone + SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
     {
-        if self.as_bytes()[range.clone()].iter().any(u8::is_ascii_lowercase) {
-            self.to_mut()?[range].make_ascii_uppercase();
+        match self {
+            #[cfg(feature = "alloc")]
+            TriCow::Owned(s) => {
+                s[range].make_ascii_uppercase();
+                Ok(())
+            }
+            TriCow::MutBorrowed(s) => {
+                s[range].make_ascii_uppercase();
+                Ok(())
+            }
+            // Only promote Borrowed -> Owned if mutation is actually required.
+            TriCow::Borrowed(_) => {
+                if self.as_bytes()[range.clone()]
+                    .iter()
+                    .any(u8::is_ascii_lowercase)
+                {
+                    self.to_mut()?[range].make_ascii_uppercase();
+                }
+                Ok(())
+            }
         }
-        Ok(())
     }
     /// # Panics
     /// Panics if range isn't at valid character boundaries
@@ -108,10 +125,26 @@ impl TriCow<'_> {
     where
         R: Clone + SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
     {
-        if self.as_bytes()[range.clone()].iter().any(u8::is_ascii_uppercase) {
-            // if this isn't ascii, it will fail later
-            self.to_mut()?[range].make_ascii_lowercase();
+        match self {
+            #[cfg(feature = "alloc")]
+            TriCow::Owned(s) => {
+                // if this isn't ascii, it will fail later
+                s[range].make_ascii_lowercase();
+                Ok(())
+            }
+            TriCow::MutBorrowed(s) => {
+                s[range].make_ascii_lowercase();
+                Ok(())
+            }
+            TriCow::Borrowed(_) => {
+                if self.as_bytes()[range.clone()]
+                    .iter()
+                    .any(u8::is_ascii_uppercase)
+                {
+                    self.to_mut()?[range].make_ascii_lowercase();
+                }
+                Ok(())
+            }
         }
-        Ok(())
     }
 }

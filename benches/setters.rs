@@ -73,6 +73,39 @@ fn bench_setters(c: &mut Criterion) {
         )
     });
 
+    g.bench_function("set_r_component_needs_norm", |b| {
+        b.iter_batched(
+            || Urn::try_from(fixtures::MINIMAL).unwrap(),
+            |mut u| {
+                u.set_r_component(Some(black_box("%2a"))).unwrap();
+                black_box(u);
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    g.bench_function("set_q_component_needs_norm", |b| {
+        b.iter_batched(
+            || Urn::try_from(fixtures::MINIMAL).unwrap(),
+            |mut u| {
+                u.set_q_component(Some(black_box("a=%2a&b=%2b"))).unwrap();
+                black_box(u);
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    g.bench_function("set_nss_needs_norm", |b| {
+        b.iter_batched(
+            || Urn::try_from(fixtures::MINIMAL).unwrap(),
+            |mut u| {
+                u.set_nss(black_box("foo%2abar%2b")).unwrap();
+                black_box(u);
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
     g.bench_function("set_f_component_replace", |b| {
         b.iter_batched(
             || Urn::try_from(fixtures::ALL_COMPONENTS).unwrap(),

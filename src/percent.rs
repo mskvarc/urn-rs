@@ -18,8 +18,10 @@ enum PctEncoded {
 
 /// Parse and normalize percent-encoded string. Returns the end.
 fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
-    let mut it = s.bytes().enumerate().skip(start).peekable();
-    while let Some((i, ch)) = it.next() {
+    let mut bytes = s.as_bytes();
+    let mut i = start;
+    while i < bytes.len() {
+        let ch = bytes[i];
         #[allow(clippy::match_same_arms)]
         match (kind, ch) {
             /* question mark handling */
@@ -28,7 +30,8 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
             // ? is a valid part of q-component if not at the start
             (PctEncoded::QComponent, b'?') if i != start => {}
             // ? is a valid part of r-component if not at the start, but ?= indicates the q-component start, so only allow the ? if it isn't followed by =
-            (PctEncoded::RComponent, b'?') if i != start && it.peek().map(|x| x.1) != Some(b'=') => {}
+            (PctEncoded::RComponent, b'?')
+                if i != start && bytes.get(i + 1) != Some(&b'=') => {}
             /* slash handling */
             // slash is uniquely allowed at the start of f-component...
             (PctEncoded::FComponent, b'/') => {}
@@ -49,20 +52,26 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
             // HEXDIG =  DIGIT / "A" / "B" / "C" / "D" / "E" / "F"
             // (ABNF strings are case insensitive)
             (_, b'%') => {
-                let mut pct_chars = it.take(2);
-                if pct_chars.len() == 2 && pct_chars.all(|x| x.1.is_ascii_hexdigit()) {
+                if i + 2 < bytes.len()
+                    && bytes[i + 1].is_ascii_hexdigit()
+                    && bytes[i + 2].is_ascii_hexdigit()
+                {
                     // percent encoding must be normalized by uppercasing it
                     s.make_uppercase(i + 1..i + 3)?;
-                    it = s.bytes().enumerate().skip(i + 3).peekable();
-                } else {
-                    return Ok(i);
+                    // Re-bind: make_uppercase may have promoted Borrowed -> Owned,
+                    // invalidating the prior byte slice view.
+                    bytes = s.as_bytes();
+                    i += 3;
+                    continue;
                 }
+                return Ok(i);
             }
             // ALPHA / DIGIT
             (_, c) if c.is_ascii_alphanumeric() => {}
             // other characters can't be part of this component, so this is the end
             _ => return Ok(i),
         }
+        i += 1;
     }
     // this was the last component!
     Ok(s.len())
@@ -334,10 +343,11 @@ fn encode(s: &str, kind: PctEncoded) -> String {
             (_, ch) if ch.is_ascii_alphanumeric() => {}
             (_, ch) => {
                 for byte in ch.encode_utf8(&mut buf).as_bytes() {
-                    ret.push('%');
-                    for digit in to_hex(*byte) {
-                        ret.push(digit as char);
-                    }
+                    let hex = to_hex(*byte);
+                    let triplet = [b'%', hex[0], hex[1]];
+                    // SAFETY: `to_hex` returns ASCII hex digits (0-9 / A-F); '%' is ASCII.
+                    // The three-byte array is therefore valid UTF-8.
+                    ret.push_str(unsafe { core::str::from_utf8_unchecked(&triplet) });
                 }
                 continue;
             }
