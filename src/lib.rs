@@ -296,6 +296,7 @@ impl<'a> UrnSlice<'a> {
 
     /// Consume self, returning an owned `Urn`. Moves buffer when already owned.
     #[cfg(feature = "alloc")]
+    #[inline]
     pub(crate) fn into_owned(self) -> Urn {
         Urn(UrnSlice {
             urn: match self.urn {
@@ -317,7 +318,21 @@ impl<'a> UrnSlice<'a> {
             .map(|x| x + FCOMP_PREFIX.len())
     }
 
-    /// String representation of this URN (Normalized).
+    /// Normalized string representation of this URN.
+    ///
+    /// The returned string is *not* a verbatim copy of the input. Per RFC 8141, parsing
+    /// applies these transformations:
+    /// - the `urn:` scheme and the NID are lowercased;
+    /// - percent-encoded triplets (`%XX`) have their hex digits uppercased.
+    ///
+    /// The NSS and the r/q/f components are otherwise preserved as-given.
+    ///
+    /// ```
+    /// # use urn::UrnSlice; fn test_main() -> Result<(), urn::Error> {
+    /// let urn = UrnSlice::try_from("uRn:eXaMpLe:%3d%3a")?;
+    /// assert_eq!(urn.as_str(), "urn:example:%3D%3A");
+    /// # Ok(()) } test_main().unwrap();
+    /// ```
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.urn
@@ -599,6 +614,19 @@ impl<'a> TryFrom<&'a str> for UrnSlice<'a> {
     }
 }
 
+/// Construct a `UrnSlice` from a mutable string slice, normalizing in place with no allocation.
+///
+/// The input buffer is mutated directly (lowercasing the scheme/NID and uppercasing
+/// percent-encoded triplets), and the returned `UrnSlice` borrows it — so no heap
+/// allocation occurs on any input.
+///
+/// ```
+/// # use urn::UrnSlice;
+/// let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
+/// let s = core::str::from_utf8_mut(&mut buf[..]).unwrap();
+/// let urn = UrnSlice::try_from(s).unwrap();
+/// assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
+/// ```
 impl<'a> TryFrom<&'a mut str> for UrnSlice<'a> {
     type Error = Error;
     fn try_from(value: &'a mut str) -> Result<Self> {
@@ -789,6 +817,8 @@ mod tests {
 
     #[cfg(not(feature = "std"))]
     use super::alloc::string::ToString;
+    #[cfg(all(not(feature = "std"), feature = "alloc"))]
+    use super::alloc::vec::Vec;
 
     #[test]
     fn it_works() {
@@ -934,5 +964,48 @@ mod tests {
             assert_eq!(urn.as_str(), "urn:a-b:test?=abcd#");
             assert_eq!(urn.r_component(), None);
         }
+    }
+
+    /// Zero-copy `&mut str` parse must mutate in place without heap-allocating;
+    /// the resulting `UrnSlice` must point at the original buffer.
+    #[test]
+    fn mut_str_normalizes_in_place() {
+        let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
+        let buf_ptr = buf.as_ptr();
+        let s = core::str::from_utf8_mut(&mut buf[..]).unwrap();
+        let urn = UrnSlice::try_from(s).unwrap();
+        assert_eq!(urn.as_str().as_ptr(), buf_ptr);
+        assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn ord_matches_eq() {
+        use core::cmp::Ordering;
+        let a = UrnSlice::try_from("urn:example:abc").unwrap();
+        let b = UrnSlice::try_from("urn:example:abd").unwrap();
+        let c = UrnSlice::try_from("urn:example:abc?=q").unwrap(); // q-component excluded from cmp
+        assert_eq!(a.cmp(&b), Ordering::Less);
+        assert_eq!(b.cmp(&a), Ordering::Greater);
+        assert_eq!(a.cmp(&c), Ordering::Equal);
+        assert_eq!(a, c);
+        // Urn delegates
+        let ao = Urn::try_from("urn:example:abc").unwrap();
+        let bo = Urn::try_from("urn:example:abd").unwrap();
+        assert!(ao < bo);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_iter_matches_decode() {
+        use crate::percent::{decode_nss, decode_nss_iter};
+        let input = "hello%20world%21";
+        let via_iter: Result<Vec<u8>, _> = decode_nss_iter(input).collect();
+        assert_eq!(via_iter.unwrap(), decode_nss(input).unwrap().into_bytes());
+
+        // Validation error surfaces via iterator.
+        let bad = "%zz";
+        let res: Result<Vec<u8>, _> = decode_nss_iter(bad).collect();
+        assert_eq!(res, Err(Error::InvalidNss));
     }
 }

@@ -53,6 +53,18 @@ pub fn all_pct_triplets(len_hint: usize) -> String {
     s
 }
 
+/// r-component payload with many `?` — exercises lookahead path in encode().
+pub fn r_component_many_q(len: usize) -> String {
+    let palette = b"abcd?efg?hij?klmn?";
+    let mut s = String::with_capacity(len);
+    let mut i = 0usize;
+    while s.len() < len {
+        s.push(palette[i % palette.len()] as char);
+        i += 1;
+    }
+    s
+}
+
 pub fn mixed_pct(len_hint: usize) -> String {
     let mut s = String::new();
     let mut i = 0usize;

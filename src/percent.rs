@@ -97,17 +97,53 @@ const fn parse_hex_char(ch: u8) -> u8 {
     }
 }
 
+/// Iterator that percent-decodes a component byte-by-byte without allocating.
+///
+/// Yields `Ok(byte)` for each decoded byte. Yields `Err(component_error)` and ends
+/// iteration on the first validation failure. Callers that want the decoded bytes as
+/// a `String` must validate UTF-8 themselves (e.g. via `String::from_utf8`).
 #[cfg(feature = "alloc")]
-fn decode(s: &str, kind: PctEncoded) -> Option<String> {
-    let mut it = s.bytes().enumerate().skip(0).peekable();
-    let mut ret = Vec::new();
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub struct DecodeIter<'a> {
+    bytes: &'a [u8],
+    i: usize,
+    kind: PctEncoded,
+    err: Error,
+    done: bool,
+}
 
-    while let Some((i, ch)) = it.next() {
+#[cfg(feature = "alloc")]
+impl<'a> DecodeIter<'a> {
+    const fn new(s: &'a str, kind: PctEncoded, err: Error) -> Self {
+        Self {
+            bytes: s.as_bytes(),
+            i: 0,
+            kind,
+            err,
+            done: false,
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> Iterator for DecodeIter<'a> {
+    type Item = Result<u8>;
+    fn next(&mut self) -> Option<Result<u8>> {
+        if self.done || self.i >= self.bytes.len() {
+            return None;
+        }
+        let i = self.i;
+        let ch = self.bytes[i];
+        let fail = |this: &mut Self| {
+            this.done = true;
+            Some(Err(this.err))
+        };
         #[allow(clippy::match_same_arms)]
-        match (kind, ch) {
+        match (self.kind, ch) {
             (PctEncoded::FComponent, b'?') => {}
             (PctEncoded::QComponent, b'?') if i != 0 => {}
-            (PctEncoded::RComponent, b'?') if i != 0 && it.peek().map(|x| x.1) != Some(b'=') => {}
+            (PctEncoded::RComponent, b'?')
+                if i != 0 && self.bytes.get(i + 1) != Some(&b'=') => {}
             (PctEncoded::FComponent, b'/') => {}
             (_, b'/') if i != 0 => {}
             (
@@ -116,21 +152,31 @@ fn decode(s: &str, kind: PctEncoded) -> Option<String> {
                 | b',' | b';' | b'=' | b':' | b'@',
             ) => {}
             (_, b'%') => {
-                let mut pct_chars = it.take(2);
-                if pct_chars.len() == 2 && pct_chars.all(|x| x.1.is_ascii_hexdigit()) {
-                    ret.push(
-                        parse_hex_char(s.as_bytes()[i + 1]) * 0x10
-                            + parse_hex_char(s.as_bytes()[i + 2]),
-                    );
-                    it = s.bytes().enumerate().skip(i + 3).peekable();
-                    continue;
+                if i + 2 >= self.bytes.len()
+                    || !self.bytes[i + 1].is_ascii_hexdigit()
+                    || !self.bytes[i + 2].is_ascii_hexdigit()
+                {
+                    return fail(self);
                 }
-                return None;
+                let v =
+                    parse_hex_char(self.bytes[i + 1]) * 0x10 + parse_hex_char(self.bytes[i + 2]);
+                self.i = i + 3;
+                return Some(Ok(v));
             }
             (_, c) if c.is_ascii_alphanumeric() => {}
-            _ => return None,
+            _ => return fail(self),
         }
-        ret.push(ch);
+        self.i = i + 1;
+        Some(Ok(ch))
+    }
+}
+
+#[cfg(feature = "alloc")]
+fn decode(s: &str, kind: PctEncoded) -> Option<String> {
+    let mut ret = Vec::with_capacity(s.len());
+    // Error value unused: we only surface success/failure via Option here.
+    for byte in DecodeIter::new(s, kind, Error::InvalidNss) {
+        ret.push(byte.ok()?);
     }
     String::from_utf8(ret).ok()
 }
@@ -212,6 +258,41 @@ pub fn decode_f_component(s: &str) -> Result<String> {
     decode(s, PctEncoded::FComponent).ok_or(Error::InvalidFComponent)
 }
 
+/// Percent-decode an NSS byte-by-byte without allocating.
+///
+/// The iterator yields `Ok(byte)` for each decoded byte, or `Err(Error::InvalidNss)`
+/// once a validation failure is encountered (after which no further items are produced).
+///
+/// ```
+/// # use urn::Urn; fn test_main() -> Result<(), urn::Error> {
+/// let urn = Urn::try_from("urn:example:string%20with%20spaces")?;
+/// let bytes: Result<Vec<u8>, _> = urn::percent::decode_nss_iter(urn.nss()).collect();
+/// assert_eq!(bytes?, b"string with spaces");
+/// # Ok(()) } test_main().unwrap();
+/// ```
+#[cfg(feature = "alloc")]
+pub fn decode_nss_iter(s: &str) -> DecodeIter<'_> {
+    DecodeIter::new(s, PctEncoded::Nss, Error::InvalidNss)
+}
+
+/// Percent-decode an r-component byte-by-byte without allocating. See [`decode_nss_iter`].
+#[cfg(feature = "alloc")]
+pub fn decode_r_component_iter(s: &str) -> DecodeIter<'_> {
+    DecodeIter::new(s, PctEncoded::RComponent, Error::InvalidRComponent)
+}
+
+/// Percent-decode a q-component byte-by-byte without allocating. See [`decode_nss_iter`].
+#[cfg(feature = "alloc")]
+pub fn decode_q_component_iter(s: &str) -> DecodeIter<'_> {
+    DecodeIter::new(s, PctEncoded::QComponent, Error::InvalidQComponent)
+}
+
+/// Percent-decode an f-component byte-by-byte without allocating. See [`decode_nss_iter`].
+#[cfg(feature = "alloc")]
+pub fn decode_f_component_iter(s: &str) -> DecodeIter<'_> {
+    DecodeIter::new(s, PctEncoded::FComponent, Error::InvalidFComponent)
+}
+
 #[cfg(feature = "alloc")]
 const fn to_hex(n: u8) -> [u8; 2] {
     let a = (n & 0xF0) >> 4;
@@ -228,40 +309,40 @@ fn encode(s: &str, kind: PctEncoded) -> String {
     let bytes = s.as_bytes();
     for (i, ch) in s.char_indices() {
         #[allow(clippy::match_same_arms)]
-        let passthrough = match (kind, ch) {
+        match (kind, ch) {
             // ? and / are reserved chars in RFC2141, so they can be included
-            (PctEncoded::FComponent, '?') => true,
-            (PctEncoded::QComponent, '?') if i != 0 => true,
+            (PctEncoded::FComponent, '?') => {}
+            (PctEncoded::QComponent, '?') if i != 0 => {}
+            // Peek next byte via bytes.get() to avoid O(n²) scan via chars().nth()
             (PctEncoded::RComponent, '?')
-                if i != 0 && bytes.get(i + 1) != Some(&b'=') => true,
-            (PctEncoded::FComponent, '/') => true,
+                if i != 0 && bytes.get(i + 1) != Some(&b'=') => {}
+            (PctEncoded::FComponent, '/') => {}
             // For RFC2141 compatibility, omit / in NSS
-            (PctEncoded::RComponent | PctEncoded::QComponent, '/') if i != 0 => true,
+            (PctEncoded::RComponent | PctEncoded::QComponent, '/') if i != 0 => {}
             // & is reserved in RFC2141, but ~ isn't, omit it
             (
                 PctEncoded::RComponent | PctEncoded::QComponent | PctEncoded::FComponent,
                 '-' | '.' | '_' | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '='
                 | ':' | '@',
-            ) => true,
+            ) => {}
             // In NSS, omit both ~ and &
             (
                 PctEncoded::Nss,
                 '-' | '.' | '_' | '!' | '$' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' | ':'
                 | '@',
-            ) => true,
-            (_, ch) if ch.is_ascii_alphanumeric() => true,
-            _ => false,
-        };
-        if passthrough {
-            ret.push(ch);
-        } else {
-            for byte in ch.encode_utf8(&mut buf).as_bytes() {
-                ret.push('%');
-                for digit in to_hex(*byte) {
-                    ret.push(digit as char);
+            ) => {}
+            (_, ch) if ch.is_ascii_alphanumeric() => {}
+            (_, ch) => {
+                for byte in ch.encode_utf8(&mut buf).as_bytes() {
+                    ret.push('%');
+                    for digit in to_hex(*byte) {
+                        ret.push(digit as char);
+                    }
                 }
+                continue;
             }
         }
+        ret.push(ch);
     }
     ret
 }

@@ -48,7 +48,13 @@ impl TriCow<'_> {
                 if range.len() == with.len() {
                     #[cfg_attr(not(feature = "alloc"), allow(clippy::redundant_clone))]
                     if let Some(slice) = s.get_mut(range.clone()) {
-                        // SAFETY: both slice and with are valid utf-8 strings of same length
+                        // SAFETY: `range.len() == with.len()` is checked above, so
+                        // `copy_from_slice` can't panic. Both `slice` and `with` originate
+                        // from `&str`, so they are valid UTF-8 of identical byte length;
+                        // overwriting `slice`'s bytes with `with`'s bytes preserves UTF-8
+                        // validity (we're replacing a complete UTF-8 sequence with another
+                        // of the same length). `s.get_mut(range)` returned `Some`, which
+                        // guarantees `range` falls on char boundaries.
                         unsafe { slice.as_bytes_mut() }.copy_from_slice(with.as_bytes());
                         return Ok(());
                     }
@@ -75,6 +81,8 @@ impl TriCow<'_> {
                 if let TriCow::Owned(s) = self {
                     Ok(s.as_mut_str())
                 } else {
+                    // Just assigned `TriCow::Owned(...)` on the line above; the variant
+                    // can't have changed between the assignment and the match.
                     unreachable!("cow isn't owned after making it owned, what happened?")
                 }
             }
