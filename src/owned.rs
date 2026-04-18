@@ -3,6 +3,7 @@ use crate::{Error, Result, UrnSlice};
 use alloc::{borrow::ToOwned, string::String};
 use core::{
     borrow::{Borrow, BorrowMut},
+    cmp::Ordering,
     fmt,
     ops::{Deref, DerefMut},
     str::FromStr,
@@ -126,6 +127,18 @@ impl AsMut<UrnSlice<'static>> for Urn {
 impl<'a> PartialEq<UrnSlice<'a>> for Urn {
     fn eq(&self, other: &UrnSlice<'a>) -> bool {
         &self.0 == other
+    }
+}
+
+impl Ord for Urn {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl PartialOrd for Urn {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 

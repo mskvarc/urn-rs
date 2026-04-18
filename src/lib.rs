@@ -35,6 +35,7 @@ use alloc::{borrow::ToOwned, string::String};
 #[cfg(feature = "alloc")]
 use core::str::FromStr;
 use core::{
+    cmp::Ordering,
     convert::{TryFrom, TryInto},
     fmt,
     hash::{self, Hash},
@@ -557,6 +558,18 @@ impl PartialEq for UrnSlice<'_> {
 }
 
 impl Eq for UrnSlice<'_> {}
+
+impl Ord for UrnSlice<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.urn[..self.nss_range().end].cmp(&other.urn[..other.nss_range().end])
+    }
+}
+
+impl PartialOrd for UrnSlice<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl Hash for UrnSlice<'_> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
