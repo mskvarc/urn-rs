@@ -1,8 +1,8 @@
 use core::hash::{Hash, Hasher};
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::collections::hash_map::DefaultHasher;
 use std::hint::black_box;
-use urn::{Urn, UrnBuilder};
+use urn_rs::{Urn, UrnBuilder};
 
 #[path = "fixtures.rs"]
 mod fixtures;

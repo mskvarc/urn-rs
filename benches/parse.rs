@@ -1,6 +1,6 @@
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
-use urn::{Urn, UrnSlice};
+use urn_rs::{Urn, UrnSlice};
 
 #[path = "fixtures.rs"]
 mod fixtures;
