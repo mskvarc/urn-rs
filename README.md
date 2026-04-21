@@ -18,7 +18,7 @@ Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/c
 - **Performance**: SWAR fast path for plain pchar runs, hex lookup tables for percent decode/encode, reduced allocations in builder / accessors / setters / serde paths. Criterion bench suite under `benches/` (`parse`, `percent`, `builder_accessors`, `setters`, `serde`).
 - **`Ord` / `PartialOrd`** on `Urn` and `UrnSlice` (lexicographic on the canonical form).
 - **Rust 2024 edition**, MSRV **1.85**.
-- Crate renamed to `urn-rs` (library name `urn` preserved for `use` sites, see `Cargo.toml`).
+- Crate renamed to `urn-rs` (library imported as `use urn_rs::…`).
 
 Everything else, RFC parsing semantics, equivalence rules, percent-encoding behavior, `no_std`/`alloc` story, Serde support, matches upstream.
 
@@ -51,7 +51,7 @@ Parsing and equality follow the spec: only the significant portion of the URN is
 Parse and inspect:
 
 ```rust
-use urn::Urn;
+use urn_rs::Urn;
 
 let u: Urn = "urn:example:foo?=bar#frag".parse()?;
 assert_eq!(u.nid(), "example");
@@ -61,7 +61,7 @@ assert_eq!(u.nss(), "foo");
 Build:
 
 ```rust
-use urn::UrnBuilder;
+use urn_rs::UrnBuilder;
 
 let u = UrnBuilder::new("example", "weather/zurich").build()?;
 assert_eq!(u.as_str(), "urn:example:weather/zurich");
@@ -70,7 +70,7 @@ assert_eq!(u.as_str(), "urn:example:weather/zurich");
 NGSI-LD (feature `ngsi-ld`):
 
 ```rust
-use urn::Urn;
+use urn_rs::Urn;
 
 let u = Urn::try_from_ngsi_ld("Vehicle", "car1")?;
 assert_eq!(u.as_str(), "urn:ngsi-ld:Vehicle:car1");
@@ -81,7 +81,7 @@ assert_eq!((p.r#type, p.id), ("Vehicle", "car1"));
 UUID typed (feature `uuid-typed`):
 
 ```rust
-use urn::Urn;
+use urn_rs::Urn;
 
 let raw: uuid::Uuid = "f47ac10b-58cc-4372-a567-0e02b2c3d479".parse()?;
 let u = Urn::try_from_uuid(raw)?;
@@ -91,7 +91,7 @@ assert_eq!(u.as_uuid(), Some(raw));
 Custom namespace:
 
 ```rust
-use urn::{Urn, UrnBuilder, namespace::UrnNamespace};
+use urn_rs::{Urn, UrnBuilder, namespace::UrnNamespace};
 
 struct Isbn;
 impl UrnNamespace for Isbn {
