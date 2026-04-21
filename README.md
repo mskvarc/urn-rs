@@ -1,77 +1,130 @@
-[![crates.io](https://img.shields.io/crates/v/urn.svg)](https://crates.io/crates/urn)
-[![docs.rs](https://docs.rs/urn/badge.svg)](https://docs.rs/urn)
+# urn-rs
 
-# URN
+Rust crate for parsing, building, comparing, and percent-encoding [RFC 8141](https://datatracker.ietf.org/doc/html/rfc8141) / [RFC 2141](https://datatracker.ietf.org/doc/html/rfc2141) URNs.
 
-A Rust crate for handling
-[URNs](https://datatracker.ietf.org/doc/html/rfc8141). Parsing
-and comparison is done according to the spec (meaning only part of the
-URN is used for equality checks). Some RFCs define per-namespace lexical
-equivalence rules, those aren't taken into account here.
+Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). Nearly all of the design and implementation is his work. This fork adds pluggable namespaces, performance work, `Ord` impls, benches, and Rust 2024 edition uplift. See [Attribution](#attribution) below.
 
-RFC2141 is more lenient than RFC8141 at times (and vice versa), care is
-taken to be able to parse either of them. When percent encoding URN
-components, the resulting URNs will always be valid for both RFC2141 and
-RFC8141 parsers. However, percent encoding/decoding rules may be
-different for some namespaces.
+## Highlights vs upstream
 
-Serde support is available behind a feature flag. `no_std` support is
-available if you disable the default "std" feature. `alloc` is optional
-as well. `UrnSlice` is a borrowed URN, `Urn` is an owned URN. See
-[docs.rs](https://docs.rs/urn) for documentation.
+- **Pluggable namespaces** (`src/namespace.rs`): `UrnNamespace` trait for typed NSS parsing/building. Built-in impls behind features:
+  - `ngsi-ld` — `urn:ngsi-ld:<Type>:<Id>`, adds `as_ngsi_ld`, `ngsi_ld_type`, `ngsi_ld_id`, `Urn::try_from_ngsi_ld`.
+  - `uuid` — canonical `urn:uuid:<8-4-4-4-12>` validation, borrowed string form (`as_uuid_str`, `try_from_uuid_str`).
+  - `uuid-typed` — same + typed `::uuid::Uuid` round-trip (`as_uuid`, `try_from_uuid`). Pulls in the `uuid` crate.
+- **Performance**: SWAR fast path for plain pchar runs, hex lookup tables for percent decode/encode, reduced allocations in builder / accessors / setters / serde paths. Criterion bench suite under `benches/` (`parse`, `percent`, `builder_accessors`, `setters`, `serde`).
+- **`Ord` / `PartialOrd`** on `Urn` and `UrnSlice` (lexicographic on the canonical form).
+- **Rust 2024 edition**, MSRV **1.85**.
+- Crate renamed to `urn-rs` (library name `urn` preserved for `use` sites, see `Cargo.toml`).
 
-URNs have a surprising amount of obscure details to the point I'm not
-sure if other URN parsers can be trusted! Granted, there's very little
-of them because almost nobody really needs URNs...
+Everything else, RFC parsing semantics, equivalence rules, percent-encoding behavior, `no_std`/`alloc` story, Serde support, matches upstream.
 
-## Roadmap
+## Parsing & equivalence
 
-Currently, I'm looking for options to integrate with the
-`percent-encoding` crate. If that isn't possible, I still want to make
-percent-encoding/decoding functions return an iterator rather than a
-`String`. Once that's done, I think the crate will be ready for 1.0.
+Parsing and equality follow the spec: only the significant portion of the URN is compared (NID is ASCII-case-insensitive; NSS percent-encoding is normalized for comparison; r-/q-/f-components do not affect equality). Per-namespace lexical equivalence rules defined by individual RFCs are **not** applied.
 
-Additionally, I may add functions for getting certain subslices of the
-URN. For example, the RFC recommends not to pass the q-component and the
-f-component to resolution services, so I can add a function that returns
-the part of the URN that doesn't have the q-component and f-component.
-The only open question for this API is the naming.
+## Features
 
-## Changelog
+| Feature      | Default | Effect                                               |
+| ------------ | ------- | ---------------------------------------------------- |
+| `std`        | yes     | enables `alloc`, adds `std::error::Error` impls      |
+| `alloc`      |         | owned `Urn`, builder, `String`-returning APIs        |
+| `serde`      |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice` |
+| `ngsi-ld`    |         | NGSI-LD namespace helpers                            |
+| `uuid`       |         | UUID NSS validation (string form)                    |
+| `uuid-typed` |         | `uuid` + typed `::uuid::Uuid` round-trip             |
 
-- 0.1.0 - initial release
-- 0.1.1 - add `FromStr` impl
-- 0.2.0 - remove `Urn::parse` function in favor of `FromStr`, improved
-  docs
-- 0.2.1 - remove files left over from 0.1
-- 0.3.0 - major implementation changes, remove `Namespace` (thanks to
-  u/chris-morgan for help)
-- 0.3.1 - fix a panic on empty NSS and add "?=" terminator to
-  r-component (both "?" and "=" can be part of r-component, but together
-  they terminate it)
-- 0.3.2 - add `Clone` impl for `Urn`
-- 0.3.3 - more precise builder errors; reduce memory footprint by up to
-  15 bytes (but increase it by 5 bytes on 16-bit platforms)
-- 0.3.4 - Serde support by @callym
-- 0.4.0 - `UrnBuilder::namespace` -> `UrnBuilder::nid`
-- 0.5.0 - changed builder API to accept options for optional components,
-  minor cleanup, fixed a couple potential minor bugs
-- 0.5.1 - fix a panic in case there wasn't a valid utf-8 char boundary 4
-  bytes into the string
-- 0.6.0 - add `alloc` feature, add `UrnSlice` type, add `percent`
-  module, don't impl `Deref<Target = str>`. The crate is getting close
-  to 1.0.
-- 0.7.0 - add support for deserializing non-`'static` `UrnSlice`s,
-  always encode valid RFC2141 URNs, check for empty string in
-  `percent::encode_*`.
+`no_std` build: disable default features. With neither `std` nor `alloc` you get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for owned `Urn` and the builder.
+
+## Types
+
+- `UrnSlice<'a>` — borrowed URN, available without `alloc`.
+- `Urn` — owned URN (requires `alloc`).
+- `UrnBuilder` — validating builder (requires `alloc`).
+- `UrnNamespace` — trait for structured NSS types.
+
+## Examples
+
+Parse and inspect:
+
+```rust
+use urn::Urn;
+
+let u: Urn = "urn:example:foo?=bar#frag".parse()?;
+assert_eq!(u.nid(), "example");
+assert_eq!(u.nss(), "foo");
+```
+
+Build:
+
+```rust
+use urn::UrnBuilder;
+
+let u = UrnBuilder::new("example", "weather/zurich").build()?;
+assert_eq!(u.as_str(), "urn:example:weather/zurich");
+```
+
+NGSI-LD (feature `ngsi-ld`):
+
+```rust
+use urn::Urn;
+
+let u = Urn::try_from_ngsi_ld("Vehicle", "car1")?;
+assert_eq!(u.as_str(), "urn:ngsi-ld:Vehicle:car1");
+let p = u.as_ngsi_ld().unwrap();
+assert_eq!((p.r#type, p.id), ("Vehicle", "car1"));
+```
+
+UUID typed (feature `uuid-typed`):
+
+```rust
+use urn::Urn;
+
+let raw: uuid::Uuid = "f47ac10b-58cc-4372-a567-0e02b2c3d479".parse()?;
+let u = Urn::try_from_uuid(raw)?;
+assert_eq!(u.as_uuid(), Some(raw));
+```
+
+Custom namespace:
+
+```rust
+use urn::{Urn, UrnBuilder, namespace::UrnNamespace};
+
+struct Isbn;
+impl UrnNamespace for Isbn {
+    const NID: &'static str = "isbn";
+    type Parts<'a> = &'a str;
+    fn parse_nss(nss: &str) -> Option<&str> {
+        (!nss.is_empty()).then_some(nss)
+    }
+    fn write_nss(p: &&str, out: &mut String) { out.push_str(p); }
+}
+
+let u = Urn::try_from("urn:isbn:0451450523")?;
+assert_eq!(u.parts::<Isbn>(), Some("0451450523"));
+```
+
+## Benches
+
+```sh
+cargo bench
+cargo bench --bench parse
+cargo bench --features serde --bench serde
+```
+
+Criterion output lands in `target/criterion/`.
+
+## MSRV
+
+Rust **1.85** (edition 2024). Bumping MSRV is a minor-version bump.
+
+## Attribution
+
+Original crate: [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). All upstream commits are preserved in this repo's history under their original authorship.
 
 ## License
 
-TL;DR do whatever you want.
+Triple-licensed BSD0 / MIT / Apache-2.0, same as upstream. At your choice:
 
-Licensed under either the [BSD Zero Clause License](LICENSE-0BSD)
-(https://opensource.org/licenses/0BSD), the [Apache 2.0
-License](LICENSE-APACHE) (http://www.apache.org/licenses/LICENSE-2.0) or
-the [MIT License](LICENSE-MIT) (http://opensource.org/licenses/MIT), at
-your choice.
+- [BSD Zero Clause License](LICENSE-0BSD) (<https://opensource.org/licenses/0BSD>)
+- [Apache 2.0](LICENSE-APACHE) (<http://www.apache.org/licenses/LICENSE-2.0>)
+- [MIT](LICENSE-MIT) (<http://opensource.org/licenses/MIT>)
 
