@@ -16,7 +16,7 @@
 //! # #[cfg(not(feature = "std"))]
 //! # fn main() { }
 //! # #[cfg(feature = "std")]
-//! # use urn::{Urn, UrnSlice, UrnBuilder};
+//! # use urn_rs::{Urn, UrnSlice, UrnBuilder};
 //! # #[cfg(feature = "std")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let urn = UrnBuilder::new("example", "1234:5678").build()?;
@@ -321,7 +321,7 @@ impl<'a> UrnSlice<'a> {
     /// The NSS and the r/q/f components are otherwise preserved as-given.
     ///
     /// ```
-    /// # use urn::UrnSlice; fn test_main() -> Result<(), urn::Error> {
+    /// # use urn_rs::UrnSlice; fn test_main() -> Result<(), urn_rs::Error> {
     /// let urn = UrnSlice::try_from("uRn:eXaMpLe:%3d%3a")?;
     /// assert_eq!(urn.as_str(), "urn:example:%3D%3A");
     /// # Ok(()) } test_main().unwrap();
@@ -613,7 +613,7 @@ impl<'a> TryFrom<&'a str> for UrnSlice<'a> {
 /// allocation occurs on any input.
 ///
 /// ```
-/// # use urn::UrnSlice;
+/// # use urn_rs::UrnSlice;
 /// let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
 /// let s = core::str::from_utf8_mut(&mut buf[..]).unwrap();
 /// let urn = UrnSlice::try_from(s).unwrap();
@@ -642,7 +642,7 @@ impl TryFrom<String> for UrnSlice<'static> {
 /// # #[cfg(not(feature = "std"))]
 /// # fn main() { }
 /// # #[cfg(feature = "std")]
-/// # use urn::{Urn, UrnBuilder};
+/// # use urn_rs::{Urn, UrnBuilder};
 /// # #[cfg(feature = "std")]
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let urn = UrnBuilder::new("example", "1234:5678").build()?;

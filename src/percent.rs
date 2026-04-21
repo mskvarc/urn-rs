@@ -202,11 +202,11 @@ fn decode(s: &str, kind: PctEncoded) -> Option<String> {
 /// Percent-decode a NSS according to the RFC
 ///
 /// ```
-/// # use urn::Urn; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::Urn; fn test_main() -> Result<(), urn_rs::Error> {
 /// let urn = Urn::try_from("urn:example:string%20with%20spaces")?;
 ///
 /// assert_eq!(
-///     urn::percent::decode_nss(urn.nss())?,
+///     urn_rs::percent::decode_nss(urn.nss())?,
 ///     "string with spaces"
 /// );
 /// # Ok(()) } test_main().unwrap();
@@ -221,11 +221,11 @@ pub fn decode_nss(s: &str) -> Result<String> {
 /// Percent-decode an r-component according to the RFC
 ///
 /// ```
-/// # use urn::Urn; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::Urn; fn test_main() -> Result<(), urn_rs::Error> {
 /// let urn = Urn::try_from("urn:example:nss?+this%20is%20the%20r-component!")?;
 ///
 /// assert_eq!(
-///     urn::percent::decode_r_component(urn.r_component().unwrap())?,
+///     urn_rs::percent::decode_r_component(urn.r_component().unwrap())?,
 ///     "this is the r-component!"
 /// );
 /// # Ok(()) } test_main().unwrap();
@@ -240,11 +240,11 @@ pub fn decode_r_component(s: &str) -> Result<String> {
 /// Percent-decode a q-component according to the RFC
 ///
 /// ```
-/// # use urn::Urn; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::Urn; fn test_main() -> Result<(), urn_rs::Error> {
 /// let urn = Urn::try_from("urn:example:nss?=this%20is%20the%20q-component!")?;
 ///
 /// assert_eq!(
-///     urn::percent::decode_q_component(urn.q_component().unwrap())?,
+///     urn_rs::percent::decode_q_component(urn.q_component().unwrap())?,
 ///     "this is the q-component!"
 /// );
 /// # Ok(()) } test_main().unwrap();
@@ -259,11 +259,11 @@ pub fn decode_q_component(s: &str) -> Result<String> {
 /// Percent-decode an f-component according to the RFC
 ///
 /// ```
-/// # use urn::Urn; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::Urn; fn test_main() -> Result<(), urn_rs::Error> {
 /// let urn = Urn::try_from("urn:example:nss#f-component%20test")?;
 ///
 /// assert_eq!(
-///     urn::percent::decode_f_component(urn.f_component().unwrap())?,
+///     urn_rs::percent::decode_f_component(urn.f_component().unwrap())?,
 ///     "f-component test"
 /// );
 /// # Ok(()) } test_main().unwrap();
@@ -282,9 +282,9 @@ pub fn decode_f_component(s: &str) -> Result<String> {
 /// once a validation failure is encountered (after which no further items are produced).
 ///
 /// ```
-/// # use urn::Urn; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::Urn; fn test_main() -> Result<(), urn_rs::Error> {
 /// let urn = Urn::try_from("urn:example:string%20with%20spaces")?;
-/// let bytes: Result<Vec<u8>, _> = urn::percent::decode_nss_iter(urn.nss()).collect();
+/// let bytes: Result<Vec<u8>, _> = urn_rs::percent::decode_nss_iter(urn.nss()).collect();
 /// assert_eq!(bytes?, b"string with spaces");
 /// # Ok(()) } test_main().unwrap();
 /// ```
@@ -389,9 +389,9 @@ fn encode(s: &str, kind: PctEncoded) -> String {
 /// Percent-decode a NSS according to the RFC
 ///
 /// ```
-/// # use urn::UrnBuilder; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
 /// assert_eq!(
-///     UrnBuilder::new("example", &urn::percent::encode_nss("test nss")?)
+///     UrnBuilder::new("example", &urn_rs::percent::encode_nss("test nss")?)
 ///         .build()?
 ///         .as_str(),
 ///     "urn:example:test%20nss"
@@ -411,10 +411,10 @@ pub fn encode_nss(s: &str) -> Result<String> {
 /// Percent-decode an r-component according to the RFC
 ///
 /// ```
-/// # use urn::UrnBuilder; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
 /// assert_eq!(
 ///     UrnBuilder::new("example", "nss")
-///         .r_component(Some(&urn::percent::encode_r_component("😂😂💯")?))
+///         .r_component(Some(&urn_rs::percent::encode_r_component("😂😂💯")?))
 ///         .build()?
 ///         .as_str(),
 ///     "urn:example:nss?+%F0%9F%98%82%F0%9F%98%82%F0%9F%92%AF"
@@ -434,10 +434,10 @@ pub fn encode_r_component(s: &str) -> Result<String> {
 /// Percent-decode a q-component according to the RFC
 ///
 /// ```
-/// # use urn::UrnBuilder; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
 /// assert_eq!(
 ///     UrnBuilder::new("example", "nss")
-///         .q_component(Some(&urn::percent::encode_q_component("~q component~")?))
+///         .q_component(Some(&urn_rs::percent::encode_q_component("~q component~")?))
 ///         .build()?
 ///         .as_str(),
 ///     "urn:example:nss?=%7Eq%20component%7E"
@@ -457,10 +457,10 @@ pub fn encode_q_component(s: &str) -> Result<String> {
 /// Percent-decode an f-component according to the RFC
 ///
 /// ```
-/// # use urn::UrnBuilder; fn test_main() -> Result<(), urn::Error> {
+/// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
 /// assert_eq!(
 ///     UrnBuilder::new("example", "nss")
-///         .f_component(Some(&urn::percent::encode_f_component("f-component (pretty much a fragment)")?))
+///         .f_component(Some(&urn_rs::percent::encode_f_component("f-component (pretty much a fragment)")?))
 ///         .build()?
 ///         .as_str(),
 ///     "urn:example:nss#f-component%20(pretty%20much%20a%20fragment)"
