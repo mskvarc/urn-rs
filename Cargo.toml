@@ -1,6 +1,6 @@
 [package]
 name = "urn-rs"
-description = "A crate for handling URNs (Unique Resource Names)"
+description = "Parse, validate, and build URNs per RFC 8141"
 version = "0.8.0"
 edition = "2024"
 rust-version = "1.85.0"
