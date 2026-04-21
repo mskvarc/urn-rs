@@ -1,5 +1,10 @@
 # urn-rs
 
+[![Crate informations](https://img.shields.io/crates/v/urn-rs.svg?style=flat-square)](https://crates.io/crates/urn-rs)
+[![Crates.io MSRV](https://img.shields.io/crates/msrv/urn-rs?style=flat-square)](https://crates.io/crates/urn-rs)
+[![License](https://img.shields.io/crates/l/urn-rs.svg?style=flat-square)](https://github.com/mskvarc/urn-rs#license)
+[![Documentation](https://docs.rs/urn-rs/badge.svg)](https://docs.rs/urn-rs)
+
 Rust crate for parsing, building, comparing, and percent-encoding [RFC 8141](https://datatracker.ietf.org/doc/html/rfc8141) / [RFC 2141](https://datatracker.ietf.org/doc/html/rfc2141) URNs.
 
 Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). Nearly all of the design and implementation is his work. This fork adds pluggable namespaces, performance work, `Ord` impls, benches, and Rust 2024 edition uplift. See [Attribution](#attribution) below.
