@@ -1,13 +1,16 @@
 [package]
 name = "urn-rs"
-version = "0.7.0"
+description = "A crate for handling URNs (Unique Resource Names)"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.85.0"
-readme = "README.md"
-authors = ["chayleaf <chayleaf-cratesio@pavluk.org>"]
-description = "A crate for handling URNs (Unique Resource Names)"
-repository = "https://github.com/chayleaf/urn/"
+authors = [
+    "chayleaf <chayleaf-cratesio@pavluk.org>",
+    "Matej Škvarč <matej.skvarc@senlab.io>",
+]
 license = "0BSD OR MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/mskvarc/urn-rs/"
 keywords = ["urn", "uri", "iana", "namespace", "parser"]
 categories = ["parser-implementations", "web-programming", "encoding"]
 autobenches = false
