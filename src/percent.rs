@@ -19,17 +19,47 @@ enum PctEncoded {
     FComponent,
 }
 
+/// Scan a contiguous run of plain-pchar bytes starting at `i`, advancing 8 at a
+/// time via parallel table lookups. Returns the first index that is either out
+/// of bounds or a non-plain byte. The bulk path keeps 8 independent loads in
+/// flight so modern cores can saturate their load ports even though we don't
+/// use explicit SIMD intrinsics.
+#[inline]
+fn scan_plain_run(bytes: &[u8], mut i: usize) -> usize {
+    while i + 8 <= bytes.len() {
+        // `try_into` on an 8-byte slice lowers to a single unaligned load.
+        let c: [u8; 8] = bytes[i..i + 8].try_into().unwrap();
+        let mut mask: u32 = 0;
+        // Unrolled so each table lookup is independent.
+        for k in 0..8 {
+            if BYTE_CLASS[c[k] as usize] & PLAIN_PARSE == 0 {
+                mask |= 1 << k;
+            }
+        }
+        if mask == 0 {
+            i += 8;
+        } else {
+            return i + mask.trailing_zeros() as usize;
+        }
+    }
+    while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & PLAIN_PARSE != 0 {
+        i += 1;
+    }
+    i
+}
+
 /// Parse and normalize percent-encoded string. Returns the end.
 fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
     let mut bytes = s.as_bytes();
     let mut i = start;
     while i < bytes.len() {
-        let ch = bytes[i];
-        let cls = BYTE_CLASS[ch as usize];
-        if cls & PLAIN_PARSE != 0 {
-            i += 1;
-            continue;
+        // Bulk-skip plain pchar runs; drops to scalar for specials (%, ?, /) and
+        // for bytes outside the pchar set.
+        i = scan_plain_run(bytes, i);
+        if i >= bytes.len() {
+            break;
         }
+        let ch = bytes[i];
         match ch {
             b'?' => match kind {
                 PctEncoded::FComponent => {}
@@ -449,4 +479,46 @@ pub fn encode_q_component(s: &str) -> Result<String> {
 pub fn encode_f_component(s: &str) -> Result<String> {
     // fragment is allowed to be empty
     Ok(encode(s, PctEncoded::FComponent))
+}
+
+#[cfg(test)]
+mod swar_tests {
+    use super::{scan_plain_run, BYTE_CLASS, PLAIN_PARSE};
+
+    fn scan_plain_scalar(bytes: &[u8], mut i: usize) -> usize {
+        while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & PLAIN_PARSE != 0 {
+            i += 1;
+        }
+        i
+    }
+
+    #[test]
+    fn swar_matches_scalar_all_prefixes() {
+        // Deterministic pseudo-random buffer mixing plain and non-plain bytes.
+        let mut buf = [0u8; 1024];
+        let mut x: u32 = 0x1234_5678;
+        for b in &mut buf {
+            x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *b = (x >> 16) as u8;
+        }
+        for len in 0..=buf.len() {
+            for start in 0..=len {
+                let a = scan_plain_run(&buf[..len], start);
+                let b = scan_plain_scalar(&buf[..len], start);
+                assert_eq!(a, b, "mismatch at len={len} start={start}");
+            }
+        }
+    }
+
+    #[test]
+    fn swar_boundary_cases() {
+        let all_plain = vec![b'A'; 33];
+        assert_eq!(scan_plain_run(&all_plain, 0), 33);
+        // Non-plain at every position across the 8-byte window boundary.
+        for pos in 0..20 {
+            let mut v = vec![b'A'; 20];
+            v[pos] = b'#';
+            assert_eq!(scan_plain_run(&v, 0), pos);
+        }
+    }
 }
