@@ -124,7 +124,6 @@ Original crate: [`urn`](https://crates.io/crates/urn) by [chayleaf](https://gith
 
 Triple-licensed BSD0 / MIT / Apache-2.0, same as upstream. At your choice:
 
-- [BSD Zero Clause License](LICENSE-0BSD) (<https://opensource.org/licenses/0BSD>)
-- [Apache 2.0](LICENSE-APACHE) (<http://www.apache.org/licenses/LICENSE-2.0>)
-- [MIT](LICENSE-MIT) (<http://opensource.org/licenses/MIT>)
-
+- [BSD Zero Clause License](LICENSE-0BSD.md) (<https://opensource.org/licenses/0BSD>)
+- [Apache 2.0](LICENSE-APACHE.md) (<http://www.apache.org/licenses/LICENSE-2.0>)
+- [MIT](LICENSE-MIT.md) (<http://opensource.org/licenses/MIT>)
