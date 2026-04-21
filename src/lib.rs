@@ -3,9 +3,6 @@
 //! Features
 //! - `serde` - [Serde](https://serde.rs) support
 //! - `std` (enabled by default) - [`std::error::Error`] integration
-//! - `nightly` - use `core::error::Error` rather than `std::error::Error`. This allows using it
-//!   without enabling the `std` feature. **Warning: this feature will be removed when this gets
-//!   stabilized and it won't be considered a breaking change!**
 //! - `alloc` (enabled by default) - [alloc](https://doc.rust-lang.org/alloc/index.html) support
 //!   (you probably want to keep this enabled)
 //! - `ngsi-ld` - structured accessors for `urn:ngsi-ld:<Type>:<Id>` URNs (see [`NgsiLd`])
@@ -47,7 +44,7 @@ use core::{
     ops::Range,
 };
 
-#[cfg(all(not(feature = "std"), feature = "nightly"))]
+#[cfg(not(feature = "std"))]
 use core::error;
 #[cfg(feature = "std")]
 use std::{borrow::ToOwned, error};
@@ -238,7 +235,7 @@ impl fmt::Display for Error {
 
 type Result<T, E = Error> = core::result::Result<T, E>;
 
-#[cfg(any(feature = "std", feature = "nightly"))]
+#[cfg(feature = "std")]
 impl error::Error for Error {}
 
 /// A borrowed RFC2141/8141 URN (Uniform Resource Name). This is a copy-on-write type.
