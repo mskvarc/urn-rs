@@ -90,9 +90,7 @@ fn is_valid_nid(s: &str) -> bool {
     if bytes.len() < 2 || bytes.len() > 32 || bytes[0] == b'-' {
         return false;
     }
-    bytes
-        .iter()
-        .all(|&b| tables::BYTE_CLASS[b as usize] & tables::NID != 0)
+    bytes.iter().all(|&b| tables::BYTE_CLASS[b as usize] & tables::NID != 0)
 }
 
 const URN_PREFIX: &str = "urn:";
@@ -147,13 +145,7 @@ fn parse_urn(mut s: TriCow) -> Result<UrnSlice> {
         let rc_start = end + RCOMP_PREFIX.len();
         end = parse_r_component(&mut s, rc_start)?;
         last_component_error = Error::InvalidRComponent;
-        Some(
-            (end - rc_start)
-                .try_into()
-                .ok()
-                .and_then(NonZeroU32::new)
-                .ok_or(last_component_error)?,
-        )
+        Some((end - rc_start).try_into().ok().and_then(NonZeroU32::new).ok_or(last_component_error)?)
     } else {
         None
     };
@@ -162,13 +154,7 @@ fn parse_urn(mut s: TriCow) -> Result<UrnSlice> {
         let qc_start = end + QCOMP_PREFIX.len();
         end = parse_q_component(&mut s, qc_start)?;
         last_component_error = Error::InvalidQComponent;
-        Some(
-            (end - qc_start)
-                .try_into()
-                .ok()
-                .and_then(NonZeroU32::new)
-                .ok_or(last_component_error)?,
-        )
+        Some((end - qc_start).try_into().ok().and_then(NonZeroU32::new).ok_or(last_component_error)?)
     } else {
         None
     };
@@ -188,12 +174,7 @@ fn parse_urn(mut s: TriCow) -> Result<UrnSlice> {
         // unwrap: NID length range is 2..=32 bytes, so it always fits into non-zero u8
         nid_len: NonZeroU8::new((nid_end - nid_start).try_into().unwrap()).unwrap(),
         // unwrap: NSS always has non-zero length
-        nss_len: NonZeroU32::new(
-            (nss_end - nss_start)
-                .try_into()
-                .map_err(|_| Error::InvalidNss)?,
-        )
-        .unwrap(),
+        nss_len: NonZeroU32::new((nss_end - nss_start).try_into().map_err(|_| Error::InvalidNss)?).unwrap(),
         r_component_len,
         q_component_len,
     })
@@ -289,9 +270,7 @@ impl<'a> UrnSlice<'a> {
 
     /// end of the last component before q-component
     fn pre_q_component_end(&self) -> usize {
-        self.r_component_range()
-            .unwrap_or_else(|| self.nss_range())
-            .end
+        self.r_component_range().unwrap_or_else(|| self.nss_range()).end
     }
 
     fn q_component_range(&self) -> Option<Range<usize>> {
@@ -329,9 +308,7 @@ impl<'a> UrnSlice<'a> {
 
     fn f_component_start(&self) -> Option<usize> {
         // ...[#<f-component>]
-        Some(self.pre_f_component_end())
-            .filter(|x| *x < self.urn.len())
-            .map(|x| x + FCOMP_PREFIX.len())
+        Some(self.pre_f_component_end()).filter(|x| *x < self.urn.len()).map(|x| x + FCOMP_PREFIX.len())
     }
 
     /// Normalized string representation of this URN.
@@ -402,8 +379,7 @@ impl<'a> UrnSlice<'a> {
             return Err(Error::InvalidNss);
         }
         // unwrap: NSS length is non-zero as checked above
-        let nss_len =
-            NonZeroU32::new(nss.len().try_into().map_err(|_| Error::InvalidNss)?).unwrap();
+        let nss_len = NonZeroU32::new(nss.len().try_into().map_err(|_| Error::InvalidNss)?).unwrap();
         let range = self.nss_range();
         self.urn.replace_range(range, &nss)?;
         self.nss_len = nss_len;
@@ -491,8 +467,7 @@ impl<'a> UrnSlice<'a> {
             } else {
                 // insert QCOMP_PREFIX if q-component doesn't already exist
                 let pre_qc_end = self.pre_q_component_end();
-                self.urn
-                    .replace_range(pre_qc_end..pre_qc_end, QCOMP_PREFIX)?;
+                self.urn.replace_range(pre_qc_end..pre_qc_end, QCOMP_PREFIX)?;
                 pre_qc_end + QCOMP_PREFIX.len()..pre_qc_end + QCOMP_PREFIX.len()
             };
             self.urn.replace_range(range, &qc)?;
@@ -543,8 +518,7 @@ impl<'a> UrnSlice<'a> {
             self.urn.replace_range(start..len, &fc)?;
         } else if let Some(start) = self.f_component_start() {
             let len = self.urn.len();
-            self.urn
-                .replace_range(start - FCOMP_PREFIX.len()..len, "")?;
+            self.urn.replace_range(start - FCOMP_PREFIX.len()..len, "")?;
         }
         Ok(())
     }
@@ -828,8 +802,7 @@ impl<'a> UrnBuilder<'a> {
             // unwrap: NID length range is 2..=32 bytes, so it always fits into non-zero u8
             nid_len: NonZeroU8::new(self.nid.len().try_into().unwrap()).unwrap(),
             // unwrap: NSS length is non-zero as checked above
-            nss_len: NonZeroU32::new(self.nss.len().try_into().map_err(|_| Error::InvalidNss)?)
-                .unwrap(),
+            nss_len: NonZeroU32::new(self.nss.len().try_into().map_err(|_| Error::InvalidNss)?).unwrap(),
             r_component_len: self
                 .r_component
                 .map(|x| {
@@ -871,12 +844,7 @@ mod tests {
             UrnSlice::try_from("urn:nbn:de:bvb:19-146642").unwrap(),
             UrnBuilder::new("nbn", "de:bvb:19-146642").build().unwrap()
         );
-        assert_eq!(
-            UrnSlice::try_from("urn:nbn:de:bvb:19-146642")
-                .unwrap()
-                .to_string(),
-            "urn:nbn:de:bvb:19-146642"
-        );
+        assert_eq!(UrnSlice::try_from("urn:nbn:de:bvb:19-146642").unwrap().to_string(), "urn:nbn:de:bvb:19-146642");
 
         #[cfg(feature = "alloc")]
         assert_eq!(
@@ -902,9 +870,7 @@ mod tests {
             "CCResolve:cc=uk"
         );
         assert_eq!(
-            UrnSlice::try_from("urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test")
-                .unwrap()
-                .to_string(),
+            UrnSlice::try_from("urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test").unwrap().to_string(),
             "urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test",
         );
 
@@ -914,58 +880,38 @@ mod tests {
                 .parse::<UrnSlice>()
                 .unwrap(),
             UrnBuilder::new("example", "weather")
-                .q_component(Some(
-                    "op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"
-                ))
+                .q_component(Some("op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"))
                 .build()
                 .unwrap()
         );
         assert_eq!(
-            UrnSlice::try_from(
-                "urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"
-            )
-            .unwrap()
-            .to_string(),
+            UrnSlice::try_from("urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z")
+                .unwrap()
+                .to_string(),
             "urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"
         );
 
         #[cfg(feature = "alloc")]
         assert_eq!(
-            "uRn:eXaMpLe:%3d%3a?=aoiwnfuafo"
-                .parse::<UrnSlice>()
-                .unwrap(),
+            "uRn:eXaMpLe:%3d%3a?=aoiwnfuafo".parse::<UrnSlice>().unwrap(),
             UrnBuilder::new("example", "%3D%3a").build().unwrap()
         );
         let mut arr = *b"uRn:eXaMpLe:%3d%3a?=aoiwnfuafo";
         assert_eq!(
-            UrnSlice::try_from(core::str::from_utf8_mut(&mut arr[..]).unwrap())
-                .unwrap()
-                .as_str(),
+            UrnSlice::try_from(core::str::from_utf8_mut(&mut arr[..]).unwrap()).unwrap().as_str(),
             "urn:example:%3D%3A?=aoiwnfuafo",
         );
 
-        assert_eq!(
-            UrnSlice::try_from("urn:-example:abcd"),
-            Err(Error::InvalidNid)
-        );
-        assert_eq!(
-            UrnSlice::try_from("urn:example:/abcd"),
-            Err(Error::InvalidNss)
-        );
+        assert_eq!(UrnSlice::try_from("urn:-example:abcd"), Err(Error::InvalidNid));
+        assert_eq!(UrnSlice::try_from("urn:example:/abcd"), Err(Error::InvalidNss));
         assert_eq!(UrnSlice::try_from("urn:a:abcd"), Err(Error::InvalidNid));
-        assert_eq!(
-            UrnSlice::try_from("urn:0123456789abcdef0123456789abcdef0:abcd"),
-            Err(Error::InvalidNid)
-        );
+        assert_eq!(UrnSlice::try_from("urn:0123456789abcdef0123456789abcdef0:abcd"), Err(Error::InvalidNid));
         let _ = UrnSlice::try_from("urn:0123456789abcdef0123456789abcdef:abcd").unwrap();
         assert_eq!(UrnSlice::try_from("urn:example"), Err(Error::InvalidNss));
         assert_eq!(UrnSlice::try_from("urn:example:"), Err(Error::InvalidNss));
         assert_eq!(UrnSlice::try_from("urn:example:%"), Err(Error::InvalidNss));
         assert_eq!(UrnSlice::try_from("urn:example:%a"), Err(Error::InvalidNss));
-        assert_eq!(
-            UrnSlice::try_from("urn:example:%a_"),
-            Err(Error::InvalidNss)
-        );
+        assert_eq!(UrnSlice::try_from("urn:example:%a_"), Err(Error::InvalidNss));
         let mut arr = *b"urn:example:%a0?+";
         assert_eq!(
             UrnSlice::try_from(core::str::from_utf8_mut(&mut arr[..]).unwrap()),

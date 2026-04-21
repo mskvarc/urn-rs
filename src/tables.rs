@@ -46,22 +46,7 @@ const fn build_byte_class() -> [u8; 256] {
         let parse_plain = is_alnum
             || matches!(
                 b,
-                b'-' | b'.'
-                    | b'_'
-                    | b'~'
-                    | b'!'
-                    | b'$'
-                    | b'&'
-                    | b'\''
-                    | b'('
-                    | b')'
-                    | b'*'
-                    | b'+'
-                    | b','
-                    | b';'
-                    | b'='
-                    | b':'
-                    | b'@'
+                b'-' | b'.' | b'_' | b'~' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' | b':' | b'@'
             );
         if parse_plain {
             m |= PLAIN_PARSE;
@@ -71,21 +56,7 @@ const fn build_byte_class() -> [u8; 256] {
         let enc_rqf = is_alnum
             || matches!(
                 b,
-                b'-' | b'.'
-                    | b'_'
-                    | b'!'
-                    | b'$'
-                    | b'&'
-                    | b'\''
-                    | b'('
-                    | b')'
-                    | b'*'
-                    | b'+'
-                    | b','
-                    | b';'
-                    | b'='
-                    | b':'
-                    | b'@'
+                b'-' | b'.' | b'_' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' | b':' | b'@'
             );
         if enc_rqf {
             m |= PLAIN_ENC_RQF;

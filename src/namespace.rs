@@ -168,11 +168,7 @@ impl UrnNamespace for Uuid {
     const NID: &'static str = "uuid";
     type Parts<'a> = &'a str;
     fn parse_nss(nss: &str) -> Option<&str> {
-        if is_canonical_uuid(nss) {
-            Some(nss)
-        } else {
-            None
-        }
+        if is_canonical_uuid(nss) { Some(nss) } else { None }
     }
     #[cfg(feature = "alloc")]
     fn write_nss(p: &&str, out: &mut String) {
@@ -234,9 +230,7 @@ impl UrnSlice<'_> {
     #[must_use]
     #[cfg_attr(docsrs, doc(cfg(feature = "uuid-typed")))]
     pub fn as_uuid_str(&self) -> Option<&str> {
-        if self.nid().eq_ignore_ascii_case(<Uuid as UrnNamespace>::NID)
-            && is_canonical_uuid(self.nss())
-        {
+        if self.nid().eq_ignore_ascii_case(<Uuid as UrnNamespace>::NID) && is_canonical_uuid(self.nss()) {
             Some(self.nss())
         } else {
             None
@@ -268,10 +262,7 @@ impl Urn {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(all(
-        feature = "alloc",
-        any(feature = "ngsi-ld", feature = "uuid", feature = "uuid-typed")
-    ))]
+    #[cfg(all(feature = "alloc", any(feature = "ngsi-ld", feature = "uuid", feature = "uuid-typed")))]
     use super::*;
 
     #[cfg(all(feature = "ngsi-ld", feature = "alloc"))]

@@ -6,8 +6,7 @@ pub const NEEDS_NORM: &str = "uRn:eXaMpLe:Foo-Bar";
 pub const PERCENT_HEAVY: &str = "urn:example:%3d%3a%2f%40%21";
 pub const ALL_COMPONENTS: &str = "urn:example:foo?+res:x?=a=1&b=2#frag";
 pub const NBN: &str = "urn:nbn:de:bvb:19-146642";
-pub const WEATHER: &str =
-    "urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z";
+pub const WEATHER: &str = "urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z";
 pub const MIXED_CASE_PCT: &str = "uRn:eXaMpLe:%3d%3a?=aoiwnfuafo";
 
 pub const INVALID_DOUBLE_COLON: &str = "urn::";

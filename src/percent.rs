@@ -3,10 +3,13 @@
 
 #[cfg(feature = "alloc")]
 use crate::Error;
-use crate::tables::{BYTE_CLASS, HEX, PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE};
 #[cfg(feature = "alloc")]
 use crate::tables::HEX_VAL;
-use crate::{Result, TriCow};
+use crate::{
+    Result,
+    TriCow,
+    tables::{BYTE_CLASS, HEX, PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE},
+};
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::{string::String, vec::Vec};
 
@@ -64,8 +67,7 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
             b'?' => match kind {
                 PctEncoded::FComponent => {}
                 PctEncoded::QComponent if i != start => {}
-                PctEncoded::RComponent
-                    if i != start && bytes.get(i + 1) != Some(&b'=') => {}
+                PctEncoded::RComponent if i != start && bytes.get(i + 1) != Some(&b'=') => {}
                 _ => return Ok(i),
             },
             b'/' => match kind {
@@ -74,10 +76,7 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
                 _ => return Ok(i),
             },
             b'%' => {
-                if i + 2 < bytes.len()
-                    && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0
-                    && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0
-                {
+                if i + 2 < bytes.len() && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
                     // percent encoding must be normalized by uppercasing it
                     s.make_uppercase(i + 1..i + 3)?;
                     // Re-bind: make_uppercase may have promoted Borrowed -> Owned,
@@ -163,8 +162,7 @@ impl<'a> Iterator for DecodeIter<'a> {
             b'?' => match self.kind {
                 PctEncoded::FComponent => {}
                 PctEncoded::QComponent if i != 0 => {}
-                PctEncoded::RComponent
-                    if i != 0 && self.bytes.get(i + 1) != Some(&b'=') => {}
+                PctEncoded::RComponent if i != 0 && self.bytes.get(i + 1) != Some(&b'=') => {}
                 _ => return fail(self),
             },
             b'/' => match self.kind {
@@ -340,9 +338,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
                     b'?' => match kind {
                         PctEncoded::FComponent => true,
                         PctEncoded::QComponent => i != 0,
-                        PctEncoded::RComponent => {
-                            i != 0 && bytes.get(i + 1) != Some(&b'=')
-                        }
+                        PctEncoded::RComponent => i != 0 && bytes.get(i + 1) != Some(&b'='),
                         PctEncoded::Nss => false,
                     },
                     b'/' => match kind {
@@ -408,7 +404,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
 #[cfg(feature = "alloc")]
 pub fn encode_nss(s: &str) -> Result<String> {
     if s.is_empty() {
-        return Err(Error::InvalidNss)
+        return Err(Error::InvalidNss);
     }
     Ok(encode(s, PctEncoded::Nss))
 }
@@ -431,7 +427,7 @@ pub fn encode_nss(s: &str) -> Result<String> {
 #[cfg(feature = "alloc")]
 pub fn encode_r_component(s: &str) -> Result<String> {
     if s.is_empty() {
-        return Err(Error::InvalidRComponent)
+        return Err(Error::InvalidRComponent);
     }
     Ok(encode(s, PctEncoded::RComponent))
 }
@@ -454,7 +450,7 @@ pub fn encode_r_component(s: &str) -> Result<String> {
 #[cfg(feature = "alloc")]
 pub fn encode_q_component(s: &str) -> Result<String> {
     if s.is_empty() {
-        return Err(Error::InvalidQComponent)
+        return Err(Error::InvalidQComponent);
     }
     Ok(encode(s, PctEncoded::QComponent))
 }
@@ -483,7 +479,7 @@ pub fn encode_f_component(s: &str) -> Result<String> {
 
 #[cfg(test)]
 mod swar_tests {
-    use super::{scan_plain_run, BYTE_CLASS, PLAIN_PARSE};
+    use super::{BYTE_CLASS, PLAIN_PARSE, scan_plain_run};
 
     fn scan_plain_scalar(bytes: &[u8], mut i: usize) -> usize {
         while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & PLAIN_PARSE != 0 {

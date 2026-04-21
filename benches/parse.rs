@@ -15,15 +15,9 @@ fn bench_parse(c: &mut Criterion) {
         ("slice_from_str_percent_heavy", fixtures::PERCENT_HEAVY),
         ("slice_from_str_all_components", fixtures::ALL_COMPONENTS),
         ("slice_from_str_nbn", fixtures::NBN),
-        (
-            "slice_from_str_invalid_double_colon",
-            fixtures::INVALID_DOUBLE_COLON,
-        ),
+        ("slice_from_str_invalid_double_colon", fixtures::INVALID_DOUBLE_COLON),
         ("slice_from_str_invalid_not_urn", fixtures::INVALID_NOT_URN),
-        (
-            "slice_from_str_invalid_bad_nid",
-            fixtures::INVALID_BAD_NID_DASH,
-        ),
+        ("slice_from_str_invalid_bad_nid", fixtures::INVALID_BAD_NID_DASH),
     ] {
         g.bench_function(name, |b| {
             b.iter(|| {
@@ -60,10 +54,7 @@ fn bench_parse(c: &mut Criterion) {
         ("urn_from_str_needs_norm", fixtures::NEEDS_NORM),
         ("urn_from_str_all_components", fixtures::ALL_COMPONENTS),
         ("urn_from_str_invalid_not_urn", fixtures::INVALID_NOT_URN),
-        (
-            "urn_from_str_invalid_double_colon",
-            fixtures::INVALID_DOUBLE_COLON,
-        ),
+        ("urn_from_str_invalid_double_colon", fixtures::INVALID_DOUBLE_COLON),
     ] {
         g.bench_function(name, |b| {
             b.iter(|| {

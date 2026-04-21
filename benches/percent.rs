@@ -1,18 +1,22 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 use urn_rs::percent::{
-    decode_f_component, decode_nss, decode_nss_iter, decode_q_component, decode_r_component,
-    encode_f_component, encode_nss, encode_q_component, encode_r_component,
+    decode_f_component,
+    decode_nss,
+    decode_nss_iter,
+    decode_q_component,
+    decode_r_component,
+    encode_f_component,
+    encode_nss,
+    encode_q_component,
+    encode_r_component,
 };
 
 #[path = "fixtures.rs"]
 mod fixtures;
 
 fn bench_encode(c: &mut Criterion) {
-    let long_ascii = fixtures::long_nss(1024)
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect::<String>();
+    let long_ascii = fixtures::long_nss(1024).chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
     let long_unicode: String = fixtures::UNICODE_PLAIN.repeat(64);
 
     let cases: &[(&str, &str)] = &[
@@ -23,28 +27,14 @@ fn bench_encode(c: &mut Criterion) {
 
     let mut g = c.benchmark_group("encode");
     for (name, input) in cases {
-        g.bench_function(format!("nss_{name}"), |b| {
-            b.iter(|| black_box(encode_nss(black_box(input))))
-        });
-        g.bench_function(format!("r_{name}"), |b| {
-            b.iter(|| black_box(encode_r_component(black_box(input))))
-        });
-        g.bench_function(format!("q_{name}"), |b| {
-            b.iter(|| black_box(encode_q_component(black_box(input))))
-        });
-        g.bench_function(format!("f_{name}"), |b| {
-            b.iter(|| black_box(encode_f_component(black_box(input))))
-        });
+        g.bench_function(format!("nss_{name}"), |b| b.iter(|| black_box(encode_nss(black_box(input)))));
+        g.bench_function(format!("r_{name}"), |b| b.iter(|| black_box(encode_r_component(black_box(input)))));
+        g.bench_function(format!("q_{name}"), |b| b.iter(|| black_box(encode_q_component(black_box(input)))));
+        g.bench_function(format!("f_{name}"), |b| b.iter(|| black_box(encode_f_component(black_box(input)))));
     }
-    g.bench_function("nss_long_ascii", |b| {
-        b.iter(|| black_box(encode_nss(black_box(long_ascii.as_str()))))
-    });
-    g.bench_function("nss_long_unicode", |b| {
-        b.iter(|| black_box(encode_nss(black_box(long_unicode.as_str()))))
-    });
-    g.bench_function("r_long_unicode", |b| {
-        b.iter(|| black_box(encode_r_component(black_box(long_unicode.as_str()))))
-    });
+    g.bench_function("nss_long_ascii", |b| b.iter(|| black_box(encode_nss(black_box(long_ascii.as_str())))));
+    g.bench_function("nss_long_unicode", |b| b.iter(|| black_box(encode_nss(black_box(long_unicode.as_str())))));
+    g.bench_function("r_long_unicode", |b| b.iter(|| black_box(encode_r_component(black_box(long_unicode.as_str())))));
     let r_many_q = fixtures::r_component_many_q(512);
     g.bench_function("r_many_question_marks", |b| {
         b.iter(|| black_box(encode_r_component(black_box(r_many_q.as_str()))))
@@ -66,18 +56,10 @@ fn bench_decode(c: &mut Criterion) {
 
     let mut g = c.benchmark_group("decode");
     for (name, input) in cases {
-        g.bench_function(format!("nss_{name}"), |b| {
-            b.iter(|| black_box(decode_nss(black_box(input))))
-        });
-        g.bench_function(format!("r_{name}"), |b| {
-            b.iter(|| black_box(decode_r_component(black_box(input))))
-        });
-        g.bench_function(format!("q_{name}"), |b| {
-            b.iter(|| black_box(decode_q_component(black_box(input))))
-        });
-        g.bench_function(format!("f_{name}"), |b| {
-            b.iter(|| black_box(decode_f_component(black_box(input))))
-        });
+        g.bench_function(format!("nss_{name}"), |b| b.iter(|| black_box(decode_nss(black_box(input)))));
+        g.bench_function(format!("r_{name}"), |b| b.iter(|| black_box(decode_r_component(black_box(input)))));
+        g.bench_function(format!("q_{name}"), |b| b.iter(|| black_box(decode_q_component(black_box(input)))));
+        g.bench_function(format!("f_{name}"), |b| b.iter(|| black_box(decode_f_component(black_box(input)))));
     }
     g.finish();
 }

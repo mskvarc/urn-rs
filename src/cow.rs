@@ -109,10 +109,7 @@ impl TriCow<'_> {
             }
             // Only promote Borrowed -> Owned if mutation is actually required.
             TriCow::Borrowed(_) => {
-                if self.as_bytes()[range.clone()]
-                    .iter()
-                    .any(u8::is_ascii_lowercase)
-                {
+                if self.as_bytes()[range.clone()].iter().any(u8::is_ascii_lowercase) {
                     self.to_mut()?[range].make_ascii_uppercase();
                 }
                 Ok(())
@@ -137,10 +134,7 @@ impl TriCow<'_> {
                 Ok(())
             }
             TriCow::Borrowed(_) => {
-                if self.as_bytes()[range.clone()]
-                    .iter()
-                    .any(u8::is_ascii_uppercase)
-                {
+                if self.as_bytes()[range.clone()].iter().any(u8::is_ascii_uppercase) {
                     self.to_mut()?[range].make_ascii_lowercase();
                 }
                 Ok(())

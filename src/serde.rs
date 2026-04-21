@@ -56,4 +56,3 @@ impl serde::Serialize for Urn {
         self.0.serialize(serializer)
     }
 }
-
