@@ -3,6 +3,9 @@
 
 #[cfg(feature = "alloc")]
 use crate::Error;
+use crate::tables::{BYTE_CLASS, HEX, PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE};
+#[cfg(feature = "alloc")]
+use crate::tables::HEX_VAL;
 use crate::{Result, TriCow};
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::{string::String, vec::Vec};
@@ -22,39 +25,28 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
     let mut i = start;
     while i < bytes.len() {
         let ch = bytes[i];
-        #[allow(clippy::match_same_arms)]
-        match (kind, ch) {
-            /* question mark handling */
-            // ? is always allowed in f-components
-            (PctEncoded::FComponent, b'?') => {}
-            // ? is a valid part of q-component if not at the start
-            (PctEncoded::QComponent, b'?') if i != start => {}
-            // ? is a valid part of r-component if not at the start, but ?= indicates the q-component start, so only allow the ? if it isn't followed by =
-            (PctEncoded::RComponent, b'?')
-                if i != start && bytes.get(i + 1) != Some(&b'=') => {}
-            /* slash handling */
-            // slash is uniquely allowed at the start of f-component...
-            (PctEncoded::FComponent, b'/') => {}
-            // ...but it's allowed everywhere if it isn't at the start
-            (_, b'/') if i != start => {}
-            /* the rest is handled the same everywhere */
-            // various symbols that are allowed as pchar
-            (
-                _,
-                // unreserved = ALPHA / DIGIT / <the following symbols>
-                b'-' | b'.' | b'_' | b'~'
-                // sub-delims = <the following symbols>
-                | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'='
-                // pchar = unreserved / pct-encoded / sub-delims / <the following symbols>
-                | b':' | b'@',
-            ) => {}
-            // pct-encoded = "%" HEXDIG HEXDIG
-            // HEXDIG =  DIGIT / "A" / "B" / "C" / "D" / "E" / "F"
-            // (ABNF strings are case insensitive)
-            (_, b'%') => {
+        let cls = BYTE_CLASS[ch as usize];
+        if cls & PLAIN_PARSE != 0 {
+            i += 1;
+            continue;
+        }
+        match ch {
+            b'?' => match kind {
+                PctEncoded::FComponent => {}
+                PctEncoded::QComponent if i != start => {}
+                PctEncoded::RComponent
+                    if i != start && bytes.get(i + 1) != Some(&b'=') => {}
+                _ => return Ok(i),
+            },
+            b'/' => match kind {
+                PctEncoded::FComponent => {}
+                _ if i != start => {}
+                _ => return Ok(i),
+            },
+            b'%' => {
                 if i + 2 < bytes.len()
-                    && bytes[i + 1].is_ascii_hexdigit()
-                    && bytes[i + 2].is_ascii_hexdigit()
+                    && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0
+                    && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0
                 {
                     // percent encoding must be normalized by uppercasing it
                     s.make_uppercase(i + 1..i + 3)?;
@@ -66,9 +58,6 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
                 }
                 return Ok(i);
             }
-            // ALPHA / DIGIT
-            (_, c) if c.is_ascii_alphanumeric() => {}
-            // other characters can't be part of this component, so this is the end
             _ => return Ok(i),
         }
         i += 1;
@@ -92,18 +81,6 @@ pub(crate) fn parse_q_component(s: &mut TriCow, start: usize) -> Result<usize> {
 /// Returns the f-component end
 pub(crate) fn parse_f_component(s: &mut TriCow, start: usize) -> Result<usize> {
     parse(s, start, PctEncoded::FComponent)
-}
-
-/// must be a hex digit
-#[cfg(feature = "alloc")]
-const fn parse_hex_char(ch: u8) -> u8 {
-    if ch.is_ascii_digit() {
-        ch - b'0'
-    } else if ch.is_ascii_lowercase() {
-        ch - b'a' + 0xA
-    } else {
-        ch - b'A' + 0xA
-    }
 }
 
 /// Iterator that percent-decodes a component byte-by-byte without allocating.
@@ -147,32 +124,36 @@ impl<'a> Iterator for DecodeIter<'a> {
             this.done = true;
             Some(Err(this.err))
         };
-        #[allow(clippy::match_same_arms)]
-        match (self.kind, ch) {
-            (PctEncoded::FComponent, b'?') => {}
-            (PctEncoded::QComponent, b'?') if i != 0 => {}
-            (PctEncoded::RComponent, b'?')
-                if i != 0 && self.bytes.get(i + 1) != Some(&b'=') => {}
-            (PctEncoded::FComponent, b'/') => {}
-            (_, b'/') if i != 0 => {}
-            (
-                _,
-                b'-' | b'.' | b'_' | b'~' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+'
-                | b',' | b';' | b'=' | b':' | b'@',
-            ) => {}
-            (_, b'%') => {
-                if i + 2 >= self.bytes.len()
-                    || !self.bytes[i + 1].is_ascii_hexdigit()
-                    || !self.bytes[i + 2].is_ascii_hexdigit()
-                {
+        let cls = BYTE_CLASS[ch as usize];
+        if cls & PLAIN_PARSE != 0 {
+            self.i = i + 1;
+            return Some(Ok(ch));
+        }
+        match ch {
+            b'?' => match self.kind {
+                PctEncoded::FComponent => {}
+                PctEncoded::QComponent if i != 0 => {}
+                PctEncoded::RComponent
+                    if i != 0 && self.bytes.get(i + 1) != Some(&b'=') => {}
+                _ => return fail(self),
+            },
+            b'/' => match self.kind {
+                PctEncoded::FComponent => {}
+                _ if i != 0 => {}
+                _ => return fail(self),
+            },
+            b'%' => {
+                if i + 2 >= self.bytes.len() {
                     return fail(self);
                 }
-                let v =
-                    parse_hex_char(self.bytes[i + 1]) * 0x10 + parse_hex_char(self.bytes[i + 2]);
+                let hi = HEX_VAL[self.bytes[i + 1] as usize];
+                let lo = HEX_VAL[self.bytes[i + 2] as usize];
+                if hi == 0xFF || lo == 0xFF {
+                    return fail(self);
+                }
                 self.i = i + 3;
-                return Some(Ok(v));
+                return Some(Ok((hi << 4) | lo));
             }
-            (_, c) if c.is_ascii_alphanumeric() => {}
             _ => return fail(self),
         }
         self.i = i + 1;
@@ -313,46 +294,68 @@ const fn to_hex(n: u8) -> [u8; 2] {
 
 #[cfg(feature = "alloc")]
 fn encode(s: &str, kind: PctEncoded) -> String {
-    let mut ret = String::with_capacity(s.len());
-    let mut buf = [0u8; 8];
     let bytes = s.as_bytes();
-    for (i, ch) in s.char_indices() {
-        #[allow(clippy::match_same_arms)]
-        match (kind, ch) {
-            // ? and / are reserved chars in RFC2141, so they can be included
-            (PctEncoded::FComponent, '?') => {}
-            (PctEncoded::QComponent, '?') if i != 0 => {}
-            // Peek next byte via bytes.get() to avoid O(n²) scan via chars().nth()
-            (PctEncoded::RComponent, '?')
-                if i != 0 && bytes.get(i + 1) != Some(&b'=') => {}
-            (PctEncoded::FComponent, '/') => {}
-            // For RFC2141 compatibility, omit / in NSS
-            (PctEncoded::RComponent | PctEncoded::QComponent, '/') if i != 0 => {}
-            // & is reserved in RFC2141, but ~ isn't, omit it
-            (
-                PctEncoded::RComponent | PctEncoded::QComponent | PctEncoded::FComponent,
-                '-' | '.' | '_' | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '='
-                | ':' | '@',
-            ) => {}
-            // In NSS, omit both ~ and &
-            (
-                PctEncoded::Nss,
-                '-' | '.' | '_' | '!' | '$' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' | ':'
-                | '@',
-            ) => {}
-            (_, ch) if ch.is_ascii_alphanumeric() => {}
-            (_, ch) => {
-                for byte in ch.encode_utf8(&mut buf).as_bytes() {
-                    let hex = to_hex(*byte);
-                    let triplet = [b'%', hex[0], hex[1]];
-                    // SAFETY: `to_hex` returns ASCII hex digits (0-9 / A-F); '%' is ASCII.
-                    // The three-byte array is therefore valid UTF-8.
-                    ret.push_str(unsafe { core::str::from_utf8_unchecked(&triplet) });
-                }
-                continue;
+    let mut ret = String::with_capacity(bytes.len());
+    let plain_mask = match kind {
+        PctEncoded::Nss => PLAIN_ENC_NSS,
+        _ => PLAIN_ENC_RQF,
+    };
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b < 0x80 {
+            let cls = BYTE_CLASS[b as usize];
+            let allowed = cls & plain_mask != 0
+                || match b {
+                    b'?' => match kind {
+                        PctEncoded::FComponent => true,
+                        PctEncoded::QComponent => i != 0,
+                        PctEncoded::RComponent => {
+                            i != 0 && bytes.get(i + 1) != Some(&b'=')
+                        }
+                        PctEncoded::Nss => false,
+                    },
+                    b'/' => match kind {
+                        PctEncoded::FComponent => true,
+                        PctEncoded::RComponent | PctEncoded::QComponent => i != 0,
+                        PctEncoded::Nss => false,
+                    },
+                    _ => false,
+                };
+            if allowed {
+                // SAFETY: `b < 0x80`, so it's a valid single-byte UTF-8 scalar.
+                ret.push(b as char);
+            } else {
+                let hex = to_hex(b);
+                let triplet = [b'%', hex[0], hex[1]];
+                // SAFETY: `to_hex` returns ASCII hex digits; '%' is ASCII. Three-byte
+                // array is therefore valid UTF-8.
+                ret.push_str(unsafe { core::str::from_utf8_unchecked(&triplet) });
             }
+            i += 1;
+        } else {
+            // Non-ASCII: part of a multi-byte UTF-8 sequence. Find the full sequence
+            // (continuation bytes have pattern 10xxxxxx) and percent-encode all of
+            // its bytes in one batched push.
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i] & 0xC0) == 0x80 {
+                i += 1;
+            }
+            // Max UTF-8 scalar is 4 bytes, so 4 * 3 = 12 encoded bytes suffice.
+            let mut buf = [0u8; 12];
+            let seq = &bytes[start..i];
+            for (j, &byte) in seq.iter().enumerate() {
+                let hex = to_hex(byte);
+                buf[j * 3] = b'%';
+                buf[j * 3 + 1] = hex[0];
+                buf[j * 3 + 2] = hex[1];
+            }
+            let len = seq.len() * 3;
+            // SAFETY: `to_hex` returns ASCII hex digits; '%' is ASCII. The written
+            // prefix is therefore valid UTF-8.
+            ret.push_str(unsafe { core::str::from_utf8_unchecked(&buf[..len]) });
         }
-        ret.push(ch);
     }
     ret
 }

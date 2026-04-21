@@ -51,6 +51,8 @@ use std::{borrow::ToOwned, error};
 mod cow;
 use cow::TriCow;
 
+mod tables;
+
 #[cfg(feature = "alloc")]
 mod owned;
 #[cfg(feature = "alloc")]
@@ -80,7 +82,7 @@ fn is_valid_nid(s: &str) -> bool {
     }
     bytes
         .iter()
-        .all(|&b| b.is_ascii_alphanumeric() || b == b'-')
+        .all(|&b| tables::BYTE_CLASS[b as usize] & tables::NID != 0)
 }
 
 const URN_PREFIX: &str = "urn:";
