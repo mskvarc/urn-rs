@@ -37,8 +37,8 @@ const fn build_byte_class() -> [u8; 256] {
     while i < 256 {
         let b = i as u8;
         let mut m = 0u8;
-        let is_alpha = matches!(b, b'A'..=b'Z' | b'a'..=b'z');
-        let is_digit = matches!(b, b'0'..=b'9');
+        let is_alpha = b.is_ascii_alphabetic();
+        let is_digit = b.is_ascii_digit();
         let is_alnum = is_alpha || is_digit;
         let is_hex = is_digit || matches!(b, b'A'..=b'F' | b'a'..=b'f');
 
