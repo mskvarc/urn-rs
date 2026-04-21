@@ -1,7 +1,8 @@
 [package]
 name = "urn"
 version = "0.7.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85.0"
 readme = "README.md"
 authors = ["chayleaf <chayleaf-cratesio@pavluk.org>"]
 description = "A crate for handling URNs (Unique Resource Names)"
