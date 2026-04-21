@@ -32,7 +32,6 @@
 #![allow(clippy::missing_panics_doc)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![cfg_attr(feature = "nightly", feature(error_in_core))]
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
@@ -44,7 +43,7 @@ use core::{
     convert::{TryFrom, TryInto},
     fmt,
     hash::{self, Hash},
-    num::{NonZeroU32, NonZeroU8},
+    num::{NonZeroU8, NonZeroU32},
     ops::Range,
 };
 
@@ -60,12 +59,12 @@ mod tables;
 
 mod namespace;
 pub use namespace::UrnNamespace;
-#[cfg(feature = "ngsi-ld")]
-#[cfg_attr(docsrs, doc(cfg(feature = "ngsi-ld")))]
-pub use namespace::{NgsiLd, NgsiLdParts};
 #[cfg(feature = "uuid")]
 #[cfg_attr(docsrs, doc(cfg(feature = "uuid")))]
 pub use namespace::Uuid;
+#[cfg(feature = "ngsi-ld")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ngsi-ld")))]
+pub use namespace::{NgsiLd, NgsiLdParts};
 
 #[cfg(feature = "alloc")]
 mod owned;
@@ -495,7 +494,8 @@ impl<'a> UrnSlice<'a> {
             } else {
                 // insert QCOMP_PREFIX if q-component doesn't already exist
                 let pre_qc_end = self.pre_q_component_end();
-                self.urn.replace_range(pre_qc_end..pre_qc_end, QCOMP_PREFIX)?;
+                self.urn
+                    .replace_range(pre_qc_end..pre_qc_end, QCOMP_PREFIX)?;
                 pre_qc_end + QCOMP_PREFIX.len()..pre_qc_end + QCOMP_PREFIX.len()
             };
             self.urn.replace_range(range, &qc)?;
@@ -546,7 +546,8 @@ impl<'a> UrnSlice<'a> {
             self.urn.replace_range(start..len, &fc)?;
         } else if let Some(start) = self.f_component_start() {
             let len = self.urn.len();
-            self.urn.replace_range(start - FCOMP_PREFIX.len()..len, "")?;
+            self.urn
+                .replace_range(start - FCOMP_PREFIX.len()..len, "")?;
         }
         Ok(())
     }
