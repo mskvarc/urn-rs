@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Add rustfmt configuration
 
 ### 🐛 Bug Fixes
+- Make doctests pass
 - Clippy warnings
 - Error in core is in stable
 
@@ -26,6 +27,8 @@ All notable changes to this project will be documented in this file.
 - Add dependabot
 
 ### 📚 Documentation
+- Update lib name in readme
+- Add changelog
 - Add badges to readme
 - Rewrite readme
 
