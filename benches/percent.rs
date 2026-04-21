@@ -1,4 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 use urn::percent::{
     decode_f_component, decode_nss, decode_nss_iter, decode_q_component, decode_r_component,
     encode_f_component, encode_nss, encode_q_component, encode_r_component,

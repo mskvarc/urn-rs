@@ -1,6 +1,7 @@
 use core::hash::{Hash, Hasher};
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use std::collections::hash_map::DefaultHasher;
+use std::hint::black_box;
 use urn::{Urn, UrnBuilder};
 
 #[path = "fixtures.rs"]
