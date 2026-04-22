@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.9.0] - 2026-04-22
+
+### ⚡ Performance
+- More swar tweaks
+- Add inline attribute to accessors
+
+### 🐛 Bug Fixes
+- Clippy warnings
+
+### 📚 Documentation
+- Rewrite readme
+- Update changelog
+
+### 🔧 Refactor
+- Remove double validation in builder
+- Kill double validation in setters
+- Drop urn namespace functionality
+
+### 🚀 Features
+- Batch scan in percent encoding
+- Add exact equivalence features
+
+### 🧹 Chores
+- Bump version
+
 ## [v0.8.0] - 2026-04-21
 
 ### ⚡ Performance
