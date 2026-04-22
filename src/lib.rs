@@ -236,18 +236,21 @@ pub struct UrnSlice<'a> {
 }
 
 impl<'a> UrnSlice<'a> {
+    #[inline]
     const fn nid_range(&self) -> Range<usize> {
         // urn:<nid>
         let start = URN_PREFIX.len();
         start..start + self.nid_len.get() as usize
     }
 
+    #[inline]
     const fn nss_range(&self) -> Range<usize> {
         // ...<nid>:<nss>
         let start = self.nid_range().end + NID_NSS_SEPARATOR.len();
         start..start + self.nss_len.get() as usize
     }
 
+    #[inline]
     fn r_component_range(&self) -> Option<Range<usize>> {
         self.r_component_len.map(|r_component_len| {
             // ...<nss>[?+<r-component>]
@@ -257,10 +260,12 @@ impl<'a> UrnSlice<'a> {
     }
 
     /// end of the last component before q-component
+    #[inline]
     fn pre_q_component_end(&self) -> usize {
         self.r_component_range().unwrap_or_else(|| self.nss_range()).end
     }
 
+    #[inline]
     fn q_component_range(&self) -> Option<Range<usize>> {
         self.q_component_len.map(|q_component_len| {
             // ...<nss>[?+<r-component>][?=<q-component>]
@@ -270,6 +275,7 @@ impl<'a> UrnSlice<'a> {
     }
 
     /// end of the last component before f-component
+    #[inline]
     fn pre_f_component_end(&self) -> usize {
         self.q_component_range()
             .or_else(|| self.r_component_range())
@@ -294,6 +300,7 @@ impl<'a> UrnSlice<'a> {
         })
     }
 
+    #[inline]
     fn f_component_start(&self) -> Option<usize> {
         // ...[#<f-component>]
         Some(self.pre_f_component_end()).filter(|x| *x < self.urn.len()).map(|x| x + FCOMP_PREFIX.len())
@@ -315,6 +322,7 @@ impl<'a> UrnSlice<'a> {
     /// # Ok(()) } test_main().unwrap();
     /// ```
     #[must_use]
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.urn
     }
@@ -323,6 +331,7 @@ impl<'a> UrnSlice<'a> {
     ///
     /// For example, in `urn:ietf:rfc:2648`, `ietf` is the namespace.
     #[must_use]
+    #[inline]
     pub fn nid(&self) -> &str {
         &self.urn[self.nid_range()]
     }
@@ -350,6 +359,7 @@ impl<'a> UrnSlice<'a> {
     /// # See also
     /// - [`percent::decode_nss`]
     #[must_use]
+    #[inline]
     pub fn nss(&self) -> &str {
         &self.urn[self.nss_range()]
     }
@@ -384,6 +394,7 @@ impl<'a> UrnSlice<'a> {
     /// # See also
     /// - [`percent::decode_r_component`]
     #[must_use]
+    #[inline]
     pub fn r_component(&self) -> Option<&str> {
         self.r_component_range().map(|range| &self.urn[range])
     }
@@ -431,6 +442,7 @@ impl<'a> UrnSlice<'a> {
     /// # See also
     /// - [`percent::decode_q_component`]
     #[must_use]
+    #[inline]
     pub fn q_component(&self) -> Option<&str> {
         self.q_component_range().map(|range| &self.urn[range])
     }
@@ -477,6 +489,7 @@ impl<'a> UrnSlice<'a> {
     /// # See also
     /// - [`percent::decode_f_component`]
     #[must_use]
+    #[inline]
     pub fn f_component(&self) -> Option<&str> {
         self.f_component_start().map(|start| &self.urn[start..])
     }
