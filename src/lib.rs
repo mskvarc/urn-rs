@@ -1231,8 +1231,14 @@ mod tests {
     #[test]
     fn encode_iter_matches_encode() {
         use crate::percent::{
-            encode_f_component, encode_f_component_iter, encode_nss, encode_nss_iter, encode_q_component, encode_q_component_iter,
-            encode_r_component, encode_r_component_iter,
+            encode_f_component,
+            encode_f_component_iter,
+            encode_nss,
+            encode_nss_iter,
+            encode_q_component,
+            encode_q_component_iter,
+            encode_r_component,
+            encode_r_component_iter,
         };
         let input = "hello world!😂";
 
