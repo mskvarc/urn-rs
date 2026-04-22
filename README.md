@@ -20,15 +20,16 @@ Everything else, RFC parsing semantics, equivalence rules, percent-encoding beha
 
 ## Parsing & equivalence
 
-Parsing and equality follow the spec: only the significant portion of the URN is compared (NID is ASCII-case-insensitive; NSS percent-encoding is normalized for comparison; r-/q-/f-components do not affect equality). Per-namespace lexical equivalence rules defined by individual RFCs are **not** applied.
+Parsing and equality follow the spec: only the significant portion of the URN is compared (NID is ASCII-case-insensitive; NSS percent-encoding is normalized for comparison; r-/q-/f-components do not affect equality). Per-namespace lexical equivalence rules defined by individual RFCs are **not** applied. Enable the `exact-eq` feature to make `PartialEq`, `Ord`, and `Hash` cover the whole (normalized) URN including r-/q-/f-components — useful when distinct components must produce distinct `HashMap` keys.
 
 ## Features
 
-| Feature | Default | Effect                                               |
-| ------- | ------- | ---------------------------------------------------- |
-| `std`   | yes     | enables `alloc`, adds `std::error::Error` impls      |
-| `alloc` |         | owned `Urn`, builder, `String`-returning APIs        |
-| `serde` |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice` |
+| Feature    | Default | Effect                                                                       |
+| ---------- | ------- | ---------------------------------------------------------------------------- |
+| `std`      | yes     | enables `alloc`, adds `std::error::Error` impls                              |
+| `alloc`    |         | owned `Urn`, builder, `String`-returning APIs                                |
+| `serde`    |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice`                         |
+| `exact-eq` |         | `PartialEq` / `Ord` / `Hash` cover the whole URN (incl. r-/q-/f-components)  |
 
 `no_std` build: disable default features. With neither `std` nor `alloc` you get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for owned `Urn` and the builder.
 

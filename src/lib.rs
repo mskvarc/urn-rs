@@ -214,7 +214,9 @@ impl error::Error for Error {}
 /// **Note:** the equivalence checks are done
 /// [according to the specification](https://www.rfc-editor.org/rfc/rfc8141.html#section-3),
 /// only taking the NID and NSS into account! If you need exact equivalence checks, consider
-/// comparing using `Urn::as_str()` as the key. Some namespaces may define additional lexical
+/// comparing using `Urn::as_str()` as the key, or enable the `exact-eq` feature to make
+/// `PartialEq`, `Ord`, and `Hash` operate on the whole (normalized) URN string including
+/// r-, q-, and f-components. Some namespaces may define additional lexical
 /// equivalence rules, these aren't accounted for in this implementation (Meaning there might be
 /// false negatives for some namespaces). There will, however, be no false positives.
 ///
@@ -544,9 +546,27 @@ impl AsRef<str> for UrnSlice<'_> {
     }
 }
 
+impl UrnSlice<'_> {
+    /// Portion of the normalized URN string used for equivalence (`PartialEq`,
+    /// `Ord`, `Hash`). With the `exact-eq` feature this is the whole URN
+    /// including r/q/f-components; otherwise just scheme + NID + NSS per
+    /// RFC 8141 §3.
+    #[inline]
+    fn eq_slice(&self) -> &str {
+        #[cfg(feature = "exact-eq")]
+        {
+            &self.urn[..]
+        }
+        #[cfg(not(feature = "exact-eq"))]
+        {
+            &self.urn[..self.nss_range().end]
+        }
+    }
+}
+
 impl PartialEq for UrnSlice<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.urn[..self.nss_range().end] == other.urn[..other.nss_range().end]
+        self.eq_slice() == other.eq_slice()
     }
 }
 
@@ -554,7 +574,7 @@ impl Eq for UrnSlice<'_> {}
 
 impl Ord for UrnSlice<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.urn[..self.nss_range().end].cmp(&other.urn[..other.nss_range().end])
+        self.eq_slice().cmp(other.eq_slice())
     }
 }
 
@@ -566,7 +586,7 @@ impl PartialOrd for UrnSlice<'_> {
 
 impl Hash for UrnSlice<'_> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.urn[..self.nss_range().end].hash(state);
+        self.eq_slice().hash(state);
     }
 }
 
@@ -877,7 +897,9 @@ mod tests {
             "urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"
         );
 
-        #[cfg(feature = "alloc")]
+        // This equality relies on q-component being excluded from eq (RFC 8141 §3).
+        // With `exact-eq`, the q-component participates in eq, so the assertion no longer holds.
+        #[cfg(all(feature = "alloc", not(feature = "exact-eq")))]
         assert_eq!(
             "uRn:eXaMpLe:%3d%3a?=aoiwnfuafo".parse::<UrnSlice>().unwrap(),
             UrnBuilder::new("example", "%3D%3a").build().unwrap()
@@ -953,7 +975,7 @@ mod tests {
         assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(all(feature = "alloc", not(feature = "exact-eq")))]
     #[test]
     fn ord_matches_eq() {
         use core::cmp::Ordering;
@@ -968,6 +990,46 @@ mod tests {
         let ao = Urn::try_from("urn:example:abc").unwrap();
         let bo = Urn::try_from("urn:example:abd").unwrap();
         assert!(ao < bo);
+    }
+
+    #[cfg(all(feature = "alloc", feature = "exact-eq"))]
+    #[test]
+    fn exact_eq_includes_rqf() {
+        use core::cmp::Ordering;
+        use core::hash::{BuildHasher, Hasher};
+        #[cfg(feature = "std")]
+        use std::collections::hash_map::RandomState;
+
+        let a = UrnSlice::try_from("urn:example:abc").unwrap();
+        let b = UrnSlice::try_from("urn:example:abc?=q").unwrap();
+        let c = UrnSlice::try_from("urn:example:abc?=q").unwrap();
+        let d = UrnSlice::try_from("urn:example:abc#frag").unwrap();
+        let e = UrnSlice::try_from("urn:example:abc?+r").unwrap();
+
+        // r/q/f now affect equality & ordering.
+        assert_ne!(a, b);
+        assert_ne!(a, d);
+        assert_ne!(a, e);
+        assert_ne!(b, d);
+        assert_eq!(b, c);
+        assert_eq!(a.cmp(&b), Ordering::Less);
+
+        // Hash/Eq contract: equal values hash identically.
+        #[cfg(feature = "std")]
+        {
+            let rs = RandomState::new();
+            let mut h1 = rs.build_hasher();
+            let mut h2 = rs.build_hasher();
+            b.hash(&mut h1);
+            c.hash(&mut h2);
+            assert_eq!(h1.finish(), h2.finish());
+
+            let mut h3 = rs.build_hasher();
+            let mut h4 = rs.build_hasher();
+            a.hash(&mut h3);
+            b.hash(&mut h4);
+            assert_ne!(h3.finish(), h4.finish());
+        }
     }
 
     #[cfg(feature = "alloc")]
