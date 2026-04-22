@@ -26,7 +26,41 @@ impl Deref for TriCow<'_> {
     }
 }
 
+/// Return true if any byte in `bytes` is ASCII uppercase (`A`..=`Z`). Uses an
+/// 8-byte SWAR batch: for each byte, compute `b & 0x7F` then use two carries to
+/// test the range `[0x41, 0x5A]`, masked by bytes whose original high bit was 0.
+#[inline]
+fn has_ascii_upper(bytes: &[u8]) -> bool {
+    let mut chunks = bytes.chunks_exact(8);
+    for chunk in &mut chunks {
+        let w = u64::from_ne_bytes(chunk.try_into().unwrap());
+        let low7 = w & 0x7F7F_7F7F_7F7F_7F7F;
+        // top bit of each byte set iff low7 >= 0x41
+        let ge_a = low7.wrapping_add(0x3F3F_3F3F_3F3F_3F3F) & 0x8080_8080_8080_8080;
+        // top bit of each byte set iff low7 >= 0x5B (i.e. > 'Z')
+        let gt_z = low7.wrapping_add(0x2525_2525_2525_2525) & 0x8080_8080_8080_8080;
+        // in_range = ge_a AND NOT gt_z; XOR works because gt_z ⊆ ge_a.
+        let in_range = ge_a ^ gt_z;
+        // keep only bytes whose original high bit was 0 (true ASCII)
+        let ascii = !w & 0x8080_8080_8080_8080;
+        if in_range & ascii != 0 {
+            return true;
+        }
+    }
+    chunks.remainder().iter().any(u8::is_ascii_uppercase)
+}
+
 impl TriCow<'_> {
+    /// Promote `Borrowed` to `Owned`; no-op for `Owned` / `MutBorrowed`. Requires
+    /// `alloc` since `Borrowed` can only be upgraded by copying into a `String`.
+    #[cfg(feature = "alloc")]
+    pub fn ensure_owned(&mut self) -> Result<()> {
+        if let TriCow::Borrowed(s) = *self {
+            *self = TriCow::Owned(s.to_owned());
+        }
+        Ok(())
+    }
+
     #[allow(clippy::unnecessary_wraps)]
     pub fn replace_range(&mut self, range: core::ops::Range<usize>, with: &str) -> Result<()> {
         match self {
@@ -134,7 +168,7 @@ impl TriCow<'_> {
                 Ok(())
             }
             TriCow::Borrowed(_) => {
-                if self.as_bytes()[range.clone()].iter().any(u8::is_ascii_uppercase) {
+                if has_ascii_upper(&self.as_bytes()[range.clone()]) {
                     self.to_mut()?[range].make_ascii_lowercase();
                 }
                 Ok(())

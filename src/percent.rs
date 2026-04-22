@@ -51,8 +51,37 @@ fn scan_plain_run(bytes: &[u8], mut i: usize) -> usize {
     i
 }
 
+/// Scan `bytes[start..]` for any well-formed `%xx` triplet with a lowercase hex
+/// digit — the only shape that requires uppercase normalization during parse.
+fn scan_needs_hex_upper(bytes: &[u8], start: usize) -> bool {
+    let mut i = start;
+    while i + 2 < bytes.len() {
+        if bytes[i] == b'%'
+            && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0
+            && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0
+        {
+            if bytes[i + 1].is_ascii_lowercase() || bytes[i + 2].is_ascii_lowercase() {
+                return true;
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 /// Parse and normalize percent-encoded string. Returns the end.
 fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
+    // One-shot: detect any triplet with lowercase hex so we can (a) skip
+    // `make_uppercase` calls entirely when not needed, and (b) promote Borrowed
+    // -> Owned up front rather than incur the per-triplet scan inside
+    // `make_uppercase`'s Borrowed arm.
+    let needs_upper = scan_needs_hex_upper(s.as_bytes(), start);
+    #[cfg(feature = "alloc")]
+    if needs_upper && matches!(s, TriCow::Borrowed(_)) {
+        s.ensure_owned()?;
+    }
     let mut bytes = s.as_bytes();
     let mut i = start;
     while i < bytes.len() {
@@ -77,11 +106,11 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
             },
             b'%' => {
                 if i + 2 < bytes.len() && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
-                    // percent encoding must be normalized by uppercasing it
-                    s.make_uppercase(i + 1..i + 3)?;
-                    // Re-bind: make_uppercase may have promoted Borrowed -> Owned,
-                    // invalidating the prior byte slice view.
-                    bytes = s.as_bytes();
+                    if needs_upper {
+                        // s is Owned/MutBorrowed; uppercase in place, no promotion.
+                        s.make_uppercase(i + 1..i + 3)?;
+                        bytes = s.as_bytes();
+                    }
                     i += 3;
                     continue;
                 }
