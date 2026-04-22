@@ -788,14 +788,41 @@ impl<'a> UrnBuilder<'a> {
         if self.nss.is_empty() {
             return Err(Error::InvalidNss);
         }
-        if matches!(self.r_component, Some("")) {
-            return Err(Error::InvalidRComponent);
-        }
-        if matches!(self.q_component, Some("")) {
-            return Err(Error::InvalidQComponent);
-        }
 
-        // Build the full URN string directly, then validate in a single pass.
+        // Validate each component on the input slices, so we never allocate a buffer
+        // for a URN that would be rejected.
+        let (nss_end_in, nss_needs_norm) = validate_nss(self.nss);
+        if nss_end_in != self.nss.len() {
+            return Err(Error::InvalidNss);
+        }
+        let rc_needs_norm = if let Some(rc) = self.r_component {
+            let (end, needs_norm) = validate_r_component(rc);
+            if rc.is_empty() || end != rc.len() {
+                return Err(Error::InvalidRComponent);
+            }
+            needs_norm
+        } else {
+            false
+        };
+        let qc_needs_norm = if let Some(qc) = self.q_component {
+            let (end, needs_norm) = validate_q_component(qc);
+            if qc.is_empty() || end != qc.len() {
+                return Err(Error::InvalidQComponent);
+            }
+            needs_norm
+        } else {
+            false
+        };
+        let fc_needs_norm = if let Some(fc) = self.f_component {
+            let (end, needs_norm) = validate_f_component(fc);
+            if end != fc.len() {
+                return Err(Error::InvalidFComponent);
+            }
+            needs_norm
+        } else {
+            false
+        };
+
         let total = URN_PREFIX.len()
             + self.nid.len()
             + NID_NSS_SEPARATOR.len()
@@ -831,26 +858,18 @@ impl<'a> UrnBuilder<'a> {
         });
 
         let mut s = TriCow::Owned(buf);
-        // Each validator stops at the first character not valid for its component
-        // (e.g. `?+` ends nss, `?=` / `#` end rc, `#` ends qc). The expected stop
-        // position equals the end of the pushed segment, so mismatches mean invalid content.
-        if parse_nss(&mut s, nss_start)? != nss_end {
-            return Err(Error::InvalidNss);
+        if nss_needs_norm {
+            normalize_range(&mut s, nss_start..nss_end)?;
         }
-        if let Some(range) = rc_range.as_ref() {
-            if parse_r_component(&mut s, range.start)? != range.end {
-                return Err(Error::InvalidRComponent);
-            }
+        if rc_needs_norm {
+            // unwrap: rc_needs_norm is only set when r_component was Some
+            normalize_range(&mut s, rc_range.as_ref().unwrap().clone())?;
         }
-        if let Some(range) = qc_range.as_ref() {
-            if parse_q_component(&mut s, range.start)? != range.end {
-                return Err(Error::InvalidQComponent);
-            }
+        if qc_needs_norm {
+            normalize_range(&mut s, qc_range.as_ref().unwrap().clone())?;
         }
-        if let Some(range) = fc_range.as_ref() {
-            if parse_f_component(&mut s, range.start)? != range.end {
-                return Err(Error::InvalidFComponent);
-            }
+        if fc_needs_norm {
+            normalize_range(&mut s, fc_range.as_ref().unwrap().clone())?;
         }
         Ok(Urn(UrnSlice {
             // we already had to allocate since we use a builder, obviously allocations are allowed
