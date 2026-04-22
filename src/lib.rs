@@ -182,12 +182,20 @@ fn parse_urn(mut s: TriCow) -> Result<UrnSlice> {
         return Err(last_component_error);
     }
 
+    // NID length range is 2..=32 bytes, so it always fits into non-zero u8.
+    let nid_len = u8::try_from(nid_end - nid_start)
+        .ok()
+        .and_then(NonZeroU8::new)
+        .ok_or(Error::InvalidNid)?;
+    // NSS always has non-zero length.
+    let nss_len = u32::try_from(nss_end - nss_start)
+        .ok()
+        .and_then(NonZeroU32::new)
+        .ok_or(Error::InvalidNss)?;
     Ok(UrnSlice {
         urn: s,
-        // unwrap: NID length range is 2..=32 bytes, so it always fits into non-zero u8
-        nid_len: NonZeroU8::new((nid_end - nid_start).try_into().unwrap()).unwrap(),
-        // unwrap: NSS always has non-zero length
-        nss_len: NonZeroU32::new((nss_end - nss_start).try_into().map_err(|_| Error::InvalidNss)?).unwrap(),
+        nid_len,
+        nss_len,
         r_component_len,
         q_component_len,
     })
@@ -369,8 +377,11 @@ impl<'a> UrnSlice<'a> {
     /// Returns [`Error::InvalidNid`] in case of a validation failure.
     pub fn set_nid(&mut self, nid: &str) -> Result<()> {
         let has_upper = check_nid(nid)?;
-        // unwrap: check_nid enforced 2..=32 byte length, so this always fits into non-zero u8
-        let nid_len = NonZeroU8::new(nid.len().try_into().unwrap()).unwrap();
+        // check_nid enforced 2..=32 byte length, so this always fits into non-zero u8.
+        let nid_len = u8::try_from(nid.len())
+            .ok()
+            .and_then(NonZeroU8::new)
+            .ok_or(Error::InvalidNid)?;
         let range = self.nid_range();
         let start = range.start;
         self.urn.replace_range(range, nid)?;
@@ -406,8 +417,11 @@ impl<'a> UrnSlice<'a> {
         if nss.is_empty() || end != nss.len() {
             return Err(Error::InvalidNss);
         }
-        // unwrap: NSS length is non-zero as checked above
-        let nss_len = NonZeroU32::new(nss.len().try_into().map_err(|_| Error::InvalidNss)?).unwrap();
+        // NSS length is non-zero as checked above.
+        let nss_len = u32::try_from(nss.len())
+            .ok()
+            .and_then(NonZeroU32::new)
+            .ok_or(Error::InvalidNss)?;
         let range = self.nss_range();
         let start = range.start;
         self.urn.replace_range(range, nss)?;
@@ -447,7 +461,10 @@ impl<'a> UrnSlice<'a> {
             if rc.is_empty() || end != rc.len() {
                 return Err(Error::InvalidRComponent);
             }
-            let rc_len = rc.len().try_into().map_err(|_| Error::InvalidRComponent)?;
+            let rc_len = u32::try_from(rc.len())
+                .ok()
+                .and_then(NonZeroU32::new)
+                .ok_or(Error::InvalidRComponent)?;
             let range = if let Some(range) = self.r_component_range() {
                 range
             } else {
@@ -461,7 +478,7 @@ impl<'a> UrnSlice<'a> {
             if needs_norm {
                 normalize_range(&mut self.urn, start..start + rc.len())?;
             }
-            self.r_component_len = Some(NonZeroU32::new(rc_len).unwrap());
+            self.r_component_len = Some(rc_len);
         } else if let Some(mut range) = self.r_component_range() {
             range.start -= RCOMP_PREFIX.len();
             self.urn.replace_range(range, "")?;
@@ -499,7 +516,10 @@ impl<'a> UrnSlice<'a> {
             if qc.is_empty() || end != qc.len() {
                 return Err(Error::InvalidQComponent);
             }
-            let qc_len = qc.len().try_into().map_err(|_| Error::InvalidQComponent)?;
+            let qc_len = u32::try_from(qc.len())
+                .ok()
+                .and_then(NonZeroU32::new)
+                .ok_or(Error::InvalidQComponent)?;
             let range = if let Some(range) = self.q_component_range() {
                 range
             } else {
@@ -513,7 +533,7 @@ impl<'a> UrnSlice<'a> {
             if needs_norm {
                 normalize_range(&mut self.urn, start..start + qc.len())?;
             }
-            self.q_component_len = Some(NonZeroU32::new(qc_len).unwrap());
+            self.q_component_len = Some(qc_len);
         } else if let Some(mut range) = self.q_component_range() {
             range.start -= QCOMP_PREFIX.len();
             self.urn.replace_range(range, "")?;
@@ -737,7 +757,7 @@ impl<'a> UrnBuilder<'a> {
     ///
     /// # See also
     /// - [`percent::encode_nss`]
-    pub fn new(nid: &'a str, nss: &'a str) -> Self {
+    pub const fn new(nid: &'a str, nss: &'a str) -> Self {
         Self {
             nid,
             nss,
@@ -747,7 +767,7 @@ impl<'a> UrnBuilder<'a> {
         }
     }
     /// Change the namespace identifier.
-    pub fn nid(mut self, nid: &'a str) -> Self {
+    pub const fn nid(mut self, nid: &'a str) -> Self {
         self.nid = nid;
         self
     }
@@ -755,7 +775,7 @@ impl<'a> UrnBuilder<'a> {
     ///
     /// # See also
     /// - [`percent::encode_nss`]
-    pub fn nss(mut self, nss: &'a str) -> Self {
+    pub const fn nss(mut self, nss: &'a str) -> Self {
         self.nss = nss;
         self
     }
@@ -763,7 +783,7 @@ impl<'a> UrnBuilder<'a> {
     ///
     /// # See also
     /// - [`percent::encode_r_component`]
-    pub fn r_component(mut self, r_component: Option<&'a str>) -> Self {
+    pub const fn r_component(mut self, r_component: Option<&'a str>) -> Self {
         self.r_component = r_component;
         self
     }
@@ -771,7 +791,7 @@ impl<'a> UrnBuilder<'a> {
     ///
     /// # See also
     /// - [`percent::encode_q_component`]
-    pub fn q_component(mut self, q_component: Option<&'a str>) -> Self {
+    pub const fn q_component(mut self, q_component: Option<&'a str>) -> Self {
         self.q_component = q_component;
         self
     }
@@ -779,7 +799,7 @@ impl<'a> UrnBuilder<'a> {
     ///
     /// # See also
     /// - [`percent::encode_f_component`]
-    pub fn f_component(mut self, f_component: Option<&'a str>) -> Self {
+    pub const fn f_component(mut self, f_component: Option<&'a str>) -> Self {
         self.f_component = f_component;
         self
     }
@@ -869,48 +889,56 @@ impl<'a> UrnBuilder<'a> {
         if nss_needs_norm {
             normalize_range(&mut s, nss_start..nss_end)?;
         }
-        if rc_needs_norm {
-            // unwrap: rc_needs_norm is only set when r_component was Some
-            normalize_range(&mut s, rc_range.as_ref().unwrap().clone())?;
+        if let Some(range) = rc_range.as_ref().filter(|_| rc_needs_norm) {
+            normalize_range(&mut s, range.clone())?;
         }
-        if qc_needs_norm {
-            normalize_range(&mut s, qc_range.as_ref().unwrap().clone())?;
+        if let Some(range) = qc_range.as_ref().filter(|_| qc_needs_norm) {
+            normalize_range(&mut s, range.clone())?;
         }
-        if fc_needs_norm {
-            normalize_range(&mut s, fc_range.as_ref().unwrap().clone())?;
+        if let Some(range) = fc_range.as_ref().filter(|_| fc_needs_norm) {
+            normalize_range(&mut s, range.clone())?;
         }
+        // NID length range is 2..=32 bytes, so it always fits into non-zero u8.
+        let nid_len = u8::try_from(self.nid.len())
+            .ok()
+            .and_then(NonZeroU8::new)
+            .ok_or(Error::InvalidNid)?;
+        // NSS length is non-zero as checked above.
+        let nss_len = u32::try_from(self.nss.len())
+            .ok()
+            .and_then(NonZeroU32::new)
+            .ok_or(Error::InvalidNss)?;
+        let r_component_len = self
+            .r_component
+            .map(|x| {
+                u32::try_from(x.len())
+                    .ok()
+                    .and_then(NonZeroU32::new)
+                    .ok_or(Error::InvalidRComponent)
+            })
+            .transpose()?;
+        let q_component_len = self
+            .q_component
+            .map(|x| {
+                u32::try_from(x.len())
+                    .ok()
+                    .and_then(NonZeroU32::new)
+                    .ok_or(Error::InvalidQComponent)
+            })
+            .transpose()?;
         Ok(Urn(UrnSlice {
             // we already had to allocate since we use a builder, obviously allocations are allowed
             urn: s,
-            // unwrap: NID length range is 2..=32 bytes, so it always fits into non-zero u8
-            nid_len: NonZeroU8::new(self.nid.len().try_into().unwrap()).unwrap(),
-            // unwrap: NSS length is non-zero as checked above
-            nss_len: NonZeroU32::new(self.nss.len().try_into().map_err(|_| Error::InvalidNss)?).unwrap(),
-            r_component_len: self
-                .r_component
-                .map(|x| {
-                    x.len()
-                        .try_into()
-                        // unwrap: r-component has non-zero length as checked above
-                        .map(|x| NonZeroU32::new(x).unwrap())
-                        .map_err(|_| Error::InvalidRComponent)
-                })
-                .transpose()?,
-            q_component_len: self
-                .q_component
-                .map(|x| {
-                    x.len()
-                        .try_into()
-                        // unwrap: q-component has non-zero length as checked above
-                        .map(|x| NonZeroU32::new(x).unwrap())
-                        .map_err(|_| Error::InvalidQComponent)
-                })
-                .transpose()?,
+            nid_len,
+            nss_len,
+            r_component_len,
+            q_component_len,
         }))
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 mod tests {
     use super::*;
 

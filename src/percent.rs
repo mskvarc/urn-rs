@@ -30,8 +30,9 @@ enum PctEncoded {
 #[inline]
 fn scan_plain_run(bytes: &[u8], mut i: usize) -> usize {
     while i + 8 <= bytes.len() {
-        // `try_into` on an 8-byte slice lowers to a single unaligned load.
-        let c: [u8; 8] = bytes[i..i + 8].try_into().unwrap();
+        // 8-byte copy lowers to a single unaligned load.
+        let mut c = [0u8; 8];
+        c.copy_from_slice(&bytes[i..i + 8]);
         let mut mask: u32 = 0;
         // Unrolled so each table lookup is independent.
         for k in 0..8 {
@@ -390,25 +391,25 @@ pub fn decode_f_component(s: &str) -> Result<String> {
 /// # Ok(()) } test_main().unwrap();
 /// ```
 #[cfg(feature = "alloc")]
-pub fn decode_nss_iter(s: &str) -> DecodeIter<'_> {
+pub const fn decode_nss_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::Nss, Error::InvalidNss)
 }
 
 /// Percent-decode an r-component byte-by-byte without allocating. See [`decode_nss_iter`].
 #[cfg(feature = "alloc")]
-pub fn decode_r_component_iter(s: &str) -> DecodeIter<'_> {
+pub const fn decode_r_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::RComponent, Error::InvalidRComponent)
 }
 
 /// Percent-decode a q-component byte-by-byte without allocating. See [`decode_nss_iter`].
 #[cfg(feature = "alloc")]
-pub fn decode_q_component_iter(s: &str) -> DecodeIter<'_> {
+pub const fn decode_q_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::QComponent, Error::InvalidQComponent)
 }
 
 /// Percent-decode an f-component byte-by-byte without allocating. See [`decode_nss_iter`].
 #[cfg(feature = "alloc")]
-pub fn decode_f_component_iter(s: &str) -> DecodeIter<'_> {
+pub const fn decode_f_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::FComponent, Error::InvalidFComponent)
 }
 
@@ -429,7 +430,8 @@ const fn to_hex(n: u8) -> [u8; 2] {
 #[inline]
 fn scan_enc_plain_run(bytes: &[u8], mut i: usize, plain_mask: u8) -> usize {
     while i + 8 <= bytes.len() {
-        let c: [u8; 8] = bytes[i..i + 8].try_into().unwrap();
+        let mut c = [0u8; 8];
+        c.copy_from_slice(&bytes[i..i + 8]);
         let mut mask: u32 = 0;
         for k in 0..8 {
             if BYTE_CLASS[c[k] as usize] & plain_mask == 0 {
@@ -616,6 +618,7 @@ pub fn encode_f_component(s: &str) -> Result<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 mod swar_tests {
     use super::{BYTE_CLASS, PLAIN_PARSE, scan_plain_run};
 

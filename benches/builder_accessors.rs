@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+
 use core::hash::{Hash, Hasher};
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::{collections::hash_map::DefaultHasher, hint::black_box};

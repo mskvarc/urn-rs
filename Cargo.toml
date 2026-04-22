@@ -35,6 +35,22 @@ criterion = "0.8.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+get_unwrap = "deny"
+wildcard_dependencies = "warn"
+wildcard_imports = "warn"
+used_underscore_binding = "warn"
+missing_const_for_fn = "warn"
+branches_sharing_code = "warn"
+cloned_instead_of_copied = "warn"
+unnecessary_self_imports = "warn"
+redundant_clone = "warn"
+needless_collect = "warn"
+map_unwrap_or = "deny"
+
 [[bench]]
 name = "parse"
 harness = false

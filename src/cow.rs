@@ -33,7 +33,9 @@ impl Deref for TriCow<'_> {
 fn has_ascii_upper(bytes: &[u8]) -> bool {
     let mut chunks = bytes.chunks_exact(8);
     for chunk in &mut chunks {
-        let w = u64::from_ne_bytes(chunk.try_into().unwrap());
+        let mut arr = [0u8; 8];
+        arr.copy_from_slice(chunk);
+        let w = u64::from_ne_bytes(arr);
         let low7 = w & 0x7F7F_7F7F_7F7F_7F7F;
         // top bit of each byte set iff low7 >= 0x41
         let ge_a = low7.wrapping_add(0x3F3F_3F3F_3F3F_3F3F) & 0x8080_8080_8080_8080;

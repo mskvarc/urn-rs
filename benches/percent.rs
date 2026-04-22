@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 use urn_rs::percent::{
