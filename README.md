@@ -1,66 +1,67 @@
 # urn-rs
 
-[![Crate informations](https://img.shields.io/crates/v/urn-rs.svg?style=flat-square)](https://crates.io/crates/urn-rs)
-[![Crates.io MSRV](https://img.shields.io/crates/msrv/urn-rs?style=flat-square)](https://crates.io/crates/urn-rs)
-[![License](https://img.shields.io/crates/l/urn-rs.svg?style=flat-square)](https://github.com/mskvarc/urn-rs#license)
-[![Documentation](https://docs.rs/urn-rs/badge.svg)](https://docs.rs/urn-rs)
+[![Crate](https://img.shields.io/crates/v/urn-rs.svg?style=flat-square)](https://crates.io/crates/urn-rs)
+[![Docs](https://img.shields.io/docsrs/urn-rs?style=flat-square)](https://docs.rs/urn-rs)
+[![MSRV](https://img.shields.io/crates/msrv/urn-rs?style=flat-square)](https://crates.io/crates/urn-rs)
+[![License](https://img.shields.io/crates/l/urn-rs.svg?style=flat-square)](#license)
 
-Rust crate for parsing, building, comparing, and percent-encoding [RFC 8141](https://datatracker.ietf.org/doc/html/rfc8141) / [RFC 2141](https://datatracker.ietf.org/doc/html/rfc2141) URNs.
-
-Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). Nearly all of the design and implementation is his work. This fork adds performance work, `Ord` impls, benches, and Rust 2024 edition uplift. See [Attribution](#attribution) below.
-
-## Highlights vs upstream
-
-- **Performance**: SWAR fast path for plain pchar runs, hex lookup tables for percent decode/encode, reduced allocations in builder / accessors / setters / serde paths. Criterion bench suite under `benches/` (`parse`, `percent`, `builder_accessors`, `setters`, `serde`).
-- **`Ord` / `PartialOrd`** on `Urn` and `UrnSlice` (lexicographic on the canonical form).
-- **Rust 2024 edition**, MSRV **1.85**.
-- Crate renamed to `urn-rs` (library imported as `use urn_rs::…`).
-
-Everything else, RFC parsing semantics, equivalence rules, percent-encoding behavior, `no_std`/`alloc` story, Serde support, matches upstream.
-
-## Parsing & equivalence
-
-Parsing and equality follow the spec: only the significant portion of the URN is compared (NID is ASCII-case-insensitive; NSS percent-encoding is normalized for comparison; r-/q-/f-components do not affect equality). Per-namespace lexical equivalence rules defined by individual RFCs are **not** applied. Enable the `exact-eq` feature to make `PartialEq`, `Ord`, and `Hash` cover the whole (normalized) URN including r-/q-/f-components — useful when distinct components must produce distinct `HashMap` keys.
-
-## Features
-
-| Feature    | Default | Effect                                                                       |
-| ---------- | ------- | ---------------------------------------------------------------------------- |
-| `std`      | yes     | enables `alloc`, adds `std::error::Error` impls                              |
-| `alloc`    |         | owned `Urn`, builder, `String`-returning APIs                                |
-| `serde`    |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice`                         |
-| `exact-eq` |         | `PartialEq` / `Ord` / `Hash` cover the whole URN (incl. r-/q-/f-components)  |
-
-`no_std` build: disable default features. With neither `std` nor `alloc` you get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for owned `Urn` and the builder.
-
-## Types
-
-- `UrnSlice<'a>` — borrowed URN, available without `alloc`.
-- `Urn` — owned URN (requires `alloc`).
-- `UrnBuilder` — validating builder (requires `alloc`).
-
-## Examples
-
-Parse and inspect:
+A small, allocation-conscious Rust crate for [RFC 8141](https://datatracker.ietf.org/doc/html/rfc8141) / [RFC 2141](https://datatracker.ietf.org/doc/html/rfc2141) URNs — parse, build, compare, percent-encode.
 
 ```rust
-use urn_rs::Urn;
+use urn_rs::{Urn, UrnBuilder};
 
-let u: Urn = "urn:example:foo?=bar#frag".parse()?;
+let u: Urn = "urn:example:weather/zurich?+ttl=60#frag".parse()?;
 assert_eq!(u.nid(), "example");
-assert_eq!(u.nss(), "foo");
+assert_eq!(u.nss(), "weather/zurich");
+
+let built = UrnBuilder::new("isbn", "0451450523").build()?;
+assert_eq!(built.as_str(), "urn:isbn:0451450523");
 ```
 
-Build:
+---
 
-```rust
-use urn_rs::UrnBuilder;
+## Why this fork
 
-let u = UrnBuilder::new("example", "weather/zurich").build()?;
-assert_eq!(u.as_str(), "urn:example:weather/zurich");
+Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). RFC behavior unchanged; this fork adds:
+
+- SWAR fast path and hex lookup tables for percent decode/encode.
+- Fewer allocations in builder, accessors, setters, serde.
+- `Ord` / `PartialOrd` on `Urn` and `UrnSlice`.
+- Criterion bench suite under `benches/`.
+- Rust 2024 edition, MSRV 1.85.
+- Renamed to `urn-rs`.
+
+Credit and history preserved — see [Attribution](#attribution).
+
+## Install
+
+```sh
+cargo add urn-rs
 ```
 
-## Benches
+## Feature flags
+
+| Flag       | Default | Enables                                                                    |
+| ---------- | :-----: | -------------------------------------------------------------------------- |
+| `std`      |   yes   | `alloc` + `std::error::Error` impls                                        |
+| `alloc`    |         | Owned `Urn`, `UrnBuilder`, `String`-returning APIs                         |
+| `serde`    |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice`                       |
+| `exact-eq` |         | Include r-/q-/f-components in `PartialEq` / `Ord` / `Hash` (normalized)    |
+
+For `no_std`, disable default features. You get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for `Urn` and the builder.
+
+## Equivalence
+
+By default, equality compares only the significant portion of the URN:
+
+- NID is ASCII-case-insensitive.
+- NSS percent-encoding is normalized before comparison.
+- r-/q-/f-components are ignored.
+- Per-namespace lexical-equivalence rules from individual RFCs are **not** applied.
+
+Enable `exact-eq` when distinct r/q/f components must produce distinct map keys — equality then covers the whole normalized URN.
+
+## Benchmarks
 
 ```sh
 cargo bench
@@ -68,20 +69,20 @@ cargo bench --bench parse
 cargo bench --features serde --bench serde
 ```
 
-Criterion output lands in `target/criterion/`.
+Criterion output: `target/criterion/`.
 
 ## MSRV
 
-Rust **1.85** (edition 2024). Bumping MSRV is a minor-version bump.
+Rust 1.85 (edition 2024).
 
 ## Attribution
 
-Original crate: [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). All upstream commits are preserved in this repo's history under their original authorship.
+Original crate: [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). Upstream commits are preserved in this repo's history under their original authorship. This fork is a thin layer of performance and ergonomics work on top of their design.
 
 ## License
 
-Triple-licensed BSD0 / MIT / Apache-2.0, same as upstream. At your choice:
+Triple-licensed, same as upstream. Pick whichever fits:
 
-- [BSD Zero Clause License](LICENSE-0BSD.md) (<https://opensource.org/licenses/0BSD>)
-- [Apache 2.0](LICENSE-APACHE.md) (<http://www.apache.org/licenses/LICENSE-2.0>)
-- [MIT](LICENSE-MIT.md) (<http://opensource.org/licenses/MIT>)
+- [0BSD](https://github.com/mskvarc/urn-rs/blob/master/LICENSE-0BSD.md)
+- [Apache-2.0](https://github.com/mskvarc/urn-rs/blob/master/LICENSE-APACHE.md)
+- [MIT](https://github.com/mskvarc/urn-rs/blob/master/LICENSE-MIT.md)
