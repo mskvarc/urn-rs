@@ -996,7 +996,8 @@ mod tests {
     #[test]
     fn exact_eq_includes_rqf() {
         use core::cmp::Ordering;
-        use core::hash::{BuildHasher, Hasher};
+        #[cfg(feature = "std")]
+        use core::hash::BuildHasher;
         #[cfg(feature = "std")]
         use std::collections::hash_map::RandomState;
 
@@ -1018,17 +1019,8 @@ mod tests {
         #[cfg(feature = "std")]
         {
             let rs = RandomState::new();
-            let mut h1 = rs.build_hasher();
-            let mut h2 = rs.build_hasher();
-            b.hash(&mut h1);
-            c.hash(&mut h2);
-            assert_eq!(h1.finish(), h2.finish());
-
-            let mut h3 = rs.build_hasher();
-            let mut h4 = rs.build_hasher();
-            a.hash(&mut h3);
-            b.hash(&mut h4);
-            assert_ne!(h3.finish(), h4.finish());
+            assert_eq!(rs.hash_one(&b), rs.hash_one(&c));
+            assert_ne!(rs.hash_one(&a), rs.hash_one(&b));
         }
     }
 
