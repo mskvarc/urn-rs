@@ -23,13 +23,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 std = ["alloc"]
 default = ["std"]
 alloc = ["serde?/alloc"]
-ngsi-ld = []
-uuid = []
-uuid-typed = ["uuid", "dep:uuid"]
 
 [dependencies]
 serde = { version = "1.0.228", default-features = false, optional = true }
-uuid = { version = "1.23.1", default-features = false, optional = true }
 
 [dev-dependencies]
 criterion = "0.8.2"

@@ -7,14 +7,10 @@
 
 Rust crate for parsing, building, comparing, and percent-encoding [RFC 8141](https://datatracker.ietf.org/doc/html/rfc8141) / [RFC 2141](https://datatracker.ietf.org/doc/html/rfc2141) URNs.
 
-Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). Nearly all of the design and implementation is his work. This fork adds pluggable namespaces, performance work, `Ord` impls, benches, and Rust 2024 edition uplift. See [Attribution](#attribution) below.
+Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). Nearly all of the design and implementation is his work. This fork adds performance work, `Ord` impls, benches, and Rust 2024 edition uplift. See [Attribution](#attribution) below.
 
 ## Highlights vs upstream
 
-- **Pluggable namespaces** (`src/namespace.rs`): `UrnNamespace` trait for typed NSS parsing/building. Built-in impls behind features:
-  - `ngsi-ld` — `urn:ngsi-ld:<Type>:<Id>`, adds `as_ngsi_ld`, `ngsi_ld_type`, `ngsi_ld_id`, `Urn::try_from_ngsi_ld`.
-  - `uuid` — canonical `urn:uuid:<8-4-4-4-12>` validation, borrowed string form (`as_uuid_str`, `try_from_uuid_str`).
-  - `uuid-typed` — same + typed `::uuid::Uuid` round-trip (`as_uuid`, `try_from_uuid`). Pulls in the `uuid` crate.
 - **Performance**: SWAR fast path for plain pchar runs, hex lookup tables for percent decode/encode, reduced allocations in builder / accessors / setters / serde paths. Criterion bench suite under `benches/` (`parse`, `percent`, `builder_accessors`, `setters`, `serde`).
 - **`Ord` / `PartialOrd`** on `Urn` and `UrnSlice` (lexicographic on the canonical form).
 - **Rust 2024 edition**, MSRV **1.85**.
@@ -28,14 +24,11 @@ Parsing and equality follow the spec: only the significant portion of the URN is
 
 ## Features
 
-| Feature      | Default | Effect                                               |
-| ------------ | ------- | ---------------------------------------------------- |
-| `std`        | yes     | enables `alloc`, adds `std::error::Error` impls      |
-| `alloc`      |         | owned `Urn`, builder, `String`-returning APIs        |
-| `serde`      |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice` |
-| `ngsi-ld`    |         | NGSI-LD namespace helpers                            |
-| `uuid`       |         | UUID NSS validation (string form)                    |
-| `uuid-typed` |         | `uuid` + typed `::uuid::Uuid` round-trip             |
+| Feature | Default | Effect                                               |
+| ------- | ------- | ---------------------------------------------------- |
+| `std`   | yes     | enables `alloc`, adds `std::error::Error` impls      |
+| `alloc` |         | owned `Urn`, builder, `String`-returning APIs        |
+| `serde` |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice` |
 
 `no_std` build: disable default features. With neither `std` nor `alloc` you get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for owned `Urn` and the builder.
 
@@ -44,7 +37,6 @@ Parsing and equality follow the spec: only the significant portion of the URN is
 - `UrnSlice<'a>` — borrowed URN, available without `alloc`.
 - `Urn` — owned URN (requires `alloc`).
 - `UrnBuilder` — validating builder (requires `alloc`).
-- `UrnNamespace` — trait for structured NSS types.
 
 ## Examples
 
@@ -65,46 +57,6 @@ use urn_rs::UrnBuilder;
 
 let u = UrnBuilder::new("example", "weather/zurich").build()?;
 assert_eq!(u.as_str(), "urn:example:weather/zurich");
-```
-
-NGSI-LD (feature `ngsi-ld`):
-
-```rust
-use urn_rs::Urn;
-
-let u = Urn::try_from_ngsi_ld("Vehicle", "car1")?;
-assert_eq!(u.as_str(), "urn:ngsi-ld:Vehicle:car1");
-let p = u.as_ngsi_ld().unwrap();
-assert_eq!((p.r#type, p.id), ("Vehicle", "car1"));
-```
-
-UUID typed (feature `uuid-typed`):
-
-```rust
-use urn_rs::Urn;
-
-let raw: uuid::Uuid = "f47ac10b-58cc-4372-a567-0e02b2c3d479".parse()?;
-let u = Urn::try_from_uuid(raw)?;
-assert_eq!(u.as_uuid(), Some(raw));
-```
-
-Custom namespace:
-
-```rust
-use urn_rs::{Urn, UrnBuilder, namespace::UrnNamespace};
-
-struct Isbn;
-impl UrnNamespace for Isbn {
-    const NID: &'static str = "isbn";
-    type Parts<'a> = &'a str;
-    fn parse_nss(nss: &str) -> Option<&str> {
-        (!nss.is_empty()).then_some(nss)
-    }
-    fn write_nss(p: &&str, out: &mut String) { out.push_str(p); }
-}
-
-let u = Urn::try_from("urn:isbn:0451450523")?;
-assert_eq!(u.parts::<Isbn>(), Some("0451450523"));
 ```
 
 ## Benches

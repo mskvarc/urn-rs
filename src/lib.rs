@@ -5,11 +5,6 @@
 //! - `std` (enabled by default) - [`std::error::Error`] integration
 //! - `alloc` (enabled by default) - [alloc](https://doc.rust-lang.org/alloc/index.html) support
 //!   (you probably want to keep this enabled)
-//! - `ngsi-ld` - structured accessors for `urn:ngsi-ld:<Type>:<Id>` URNs (see [`NgsiLd`])
-//! - `uuid` - canonical-string accessors for `urn:uuid:<UUID>` URNs (see [`Uuid`])
-//! - `uuid-typed` - additionally pulls the `uuid` crate and exposes typed [`::uuid::Uuid`] parts
-//!
-//! Downstream crates can define their own namespaces by implementing [`UrnNamespace`].
 //!
 //! # Example
 //! ```
@@ -53,15 +48,6 @@ mod cow;
 use cow::TriCow;
 
 mod tables;
-
-mod namespace;
-pub use namespace::UrnNamespace;
-#[cfg(feature = "uuid")]
-#[cfg_attr(docsrs, doc(cfg(feature = "uuid")))]
-pub use namespace::Uuid;
-#[cfg(feature = "ngsi-ld")]
-#[cfg_attr(docsrs, doc(cfg(feature = "ngsi-ld")))]
-pub use namespace::{NgsiLd, NgsiLdParts};
 
 #[cfg(feature = "alloc")]
 mod owned;
