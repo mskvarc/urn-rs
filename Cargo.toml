@@ -29,6 +29,7 @@ exact-eq = []
 
 [dependencies]
 serde = { version = "1.0.228", default-features = false, optional = true }
+thiserror = { version = "2.0.18", default-features = false }
 
 [dev-dependencies]
 criterion = "0.8.2"

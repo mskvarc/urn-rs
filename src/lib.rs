@@ -39,10 +39,8 @@ use core::{
     ops::Range,
 };
 
-#[cfg(not(feature = "std"))]
-use core::error;
 #[cfg(feature = "std")]
-use std::{borrow::ToOwned, error};
+use std::borrow::ToOwned;
 
 mod cow;
 use cow::TriCow;
@@ -196,43 +194,34 @@ fn parse_urn(mut s: TriCow) -> Result<UrnSlice> {
 }
 
 /// A URN validation error.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// The URN has an invalid scheme.
+    #[error("invalid urn scheme")]
     InvalidScheme,
     /// The URN has an invalid NID (Namespace ID).
+    #[error("invalid urn nid (namespace id)")]
     InvalidNid,
     /// The URN has an invalid NSS (Namespace-specific string).
+    #[error("invalid urn nss (namespace-specific string)")]
     InvalidNss,
     /// The URN has an invalid r-component.
+    #[error("invalid urn r-component")]
     InvalidRComponent,
     /// The URN has an invalid q-component.
+    #[error("invalid urn q-component")]
     InvalidQComponent,
     /// The URN has an invalid f-component.
+    #[error("invalid urn f-component (fragment)")]
     InvalidFComponent,
     /// Allocation is required, but not possible. This is only ever created when `alloc` feature
     /// is disabled.
+    #[error("an allocation was required, but not possible")]
     AllocRequired,
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::InvalidScheme => "invalid urn scheme",
-            Self::InvalidNid => "invalid urn nid (namespace id)",
-            Self::InvalidNss => "invalid urn nss (namespace-specific string)",
-            Self::InvalidRComponent => "invalid urn r-component",
-            Self::InvalidQComponent => "invalid urn q-component",
-            Self::InvalidFComponent => "invalid urn f-component (fragment)",
-            Self::AllocRequired => "an allocation was required, but not possible",
-        })
-    }
-}
-
 type Result<T, E = Error> = core::result::Result<T, E>;
-
-#[cfg(feature = "std")]
-impl error::Error for Error {}
 
 /// A borrowed RFC2141/8141 URN (Uniform Resource Name). This is a copy-on-write type.
 ///
