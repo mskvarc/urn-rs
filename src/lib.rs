@@ -972,7 +972,7 @@ mod tests {
     #[cfg(not(feature = "std"))]
     use super::alloc::string::ToString;
     #[cfg(all(not(feature = "std"), feature = "alloc"))]
-    use super::alloc::vec::Vec;
+    use super::alloc::{vec, vec::Vec};
 
     #[test]
     fn it_works() {
@@ -1168,5 +1168,91 @@ mod tests {
         let bad = "%zz";
         let res: Result<Vec<u8>, _> = decode_nss_iter(bad).collect();
         assert_eq!(res, Err(Error::InvalidNss));
+    }
+
+    #[test]
+    fn byte_slice_try_from_roundtrip() {
+        let bytes: &[u8] = b"urn:example:foo";
+        let urn = UrnSlice::try_from(bytes).unwrap();
+        assert_eq!(urn.as_str(), "urn:example:foo");
+
+        // invalid UTF-8 rejected
+        let bad: &[u8] = &[0xFFu8, b'u', b'r', b'n'];
+        assert_eq!(UrnSlice::try_from(bad).unwrap_err(), Error::InvalidUtf8);
+    }
+
+    #[test]
+    fn mut_byte_slice_normalizes_in_place() {
+        let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
+        let buf_ptr = buf.as_ptr();
+        let urn = UrnSlice::try_from(&mut buf[..]).unwrap();
+        assert_eq!(urn.as_str().as_ptr(), buf_ptr);
+        assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn vec_try_from_roundtrip() {
+        let v: Vec<u8> = b"urn:example:foo".to_vec();
+        let urn = UrnSlice::try_from(v).unwrap();
+        assert_eq!(urn.as_str(), "urn:example:foo");
+
+        let bad: Vec<u8> = vec![0xFFu8];
+        assert_eq!(UrnSlice::try_from(bad).unwrap_err(), Error::InvalidUtf8);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn build_slice_matches_build() {
+        let a = UrnBuilder::new("example", "1234:5678").build_slice().unwrap();
+        let b = UrnBuilder::new("example", "1234:5678").build().unwrap();
+        assert_eq!(a.as_str(), b.as_str());
+        assert_eq!(a.as_str(), "urn:example:1234:5678");
+    }
+
+    #[test]
+    fn from_static_normalized_borrows() {
+        // Normalized input → parser stays on Borrowed path (zero-alloc).
+        let s: &'static str = "urn:example:foo";
+        let urn = UrnSlice::from_static(s).unwrap();
+        // Same allocation: as_str() pointer equals the static string pointer.
+        assert_eq!(urn.as_str().as_ptr(), s.as_ptr());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn from_static_denormalized_still_ok() {
+        // Denormalized: parser promotes to Owned, still yields normalized output.
+        let urn = UrnSlice::from_static("uRn:eXaMpLe:%3d%3a").unwrap();
+        assert_eq!(urn.as_str(), "urn:example:%3D%3A");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn encode_iter_matches_encode() {
+        use crate::percent::{
+            encode_f_component, encode_f_component_iter, encode_nss, encode_nss_iter, encode_q_component, encode_q_component_iter,
+            encode_r_component, encode_r_component_iter,
+        };
+        let input = "hello world!😂";
+
+        let via_iter: Vec<u8> = encode_nss_iter(input).collect();
+        assert_eq!(via_iter, encode_nss(input).unwrap().into_bytes());
+
+        let via_iter: Vec<u8> = encode_r_component_iter(input).collect();
+        assert_eq!(via_iter, encode_r_component(input).unwrap().into_bytes());
+
+        let via_iter: Vec<u8> = encode_q_component_iter(input).collect();
+        assert_eq!(via_iter, encode_q_component(input).unwrap().into_bytes());
+
+        let via_iter: Vec<u8> = encode_f_component_iter(input).collect();
+        assert_eq!(via_iter, encode_f_component(input).unwrap().into_bytes());
+
+        // Context-dependent handling: leading '?' in r-component must be encoded;
+        // non-leading '?' (when not followed by '=') passes through.
+        let r = encode_r_component_iter("?x").collect::<Vec<u8>>();
+        assert_eq!(r, encode_r_component("?x").unwrap().into_bytes());
+        let r = encode_r_component_iter("x?y").collect::<Vec<u8>>();
+        assert_eq!(r, encode_r_component("x?y").unwrap().into_bytes());
     }
 }
