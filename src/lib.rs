@@ -60,7 +60,9 @@ pub use owned::Urn;
 pub mod percent;
 #[cfg(not(feature = "alloc"))]
 mod percent;
-use percent::{parse_f_component, parse_nss, parse_q_component, parse_r_component};
+use percent::{
+    normalize_range, parse_f_component, parse_nss, parse_q_component, parse_r_component, validate_f_component, validate_nss, validate_q_component, validate_r_component,
+};
 
 #[cfg(feature = "serde")]
 mod serde;
@@ -77,6 +79,23 @@ fn is_valid_nid(s: &str) -> bool {
         return false;
     }
     bytes.iter().all(|&b| tables::BYTE_CLASS[b as usize] & tables::NID != 0)
+}
+
+/// Single-pass NID validation plus ASCII-uppercase detection. Returns
+/// `Ok(has_upper)` for a valid NID, `Err(InvalidNid)` otherwise.
+fn check_nid(s: &str) -> Result<bool> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 2 || bytes.len() > 32 || bytes[0] == b'-' {
+        return Err(Error::InvalidNid);
+    }
+    let mut has_upper = false;
+    for &b in bytes {
+        if tables::BYTE_CLASS[b as usize] & tables::NID == 0 {
+            return Err(Error::InvalidNid);
+        }
+        has_upper |= b.is_ascii_uppercase();
+    }
+    Ok(has_upper)
 }
 
 const URN_PREFIX: &str = "urn:";
@@ -341,15 +360,18 @@ impl<'a> UrnSlice<'a> {
     /// # Errors
     /// Returns [`Error::InvalidNid`] in case of a validation failure.
     pub fn set_nid(&mut self, nid: &str) -> Result<()> {
-        if !is_valid_nid(nid) {
-            return Err(Error::InvalidNid);
-        }
-        let mut nid = TriCow::Borrowed(nid);
-        nid.make_lowercase(..)?;
+        let has_upper = check_nid(nid)?;
+        // unwrap: check_nid enforced 2..=32 byte length, so this always fits into non-zero u8
+        let nid_len = NonZeroU8::new(nid.len().try_into().unwrap()).unwrap();
         let range = self.nid_range();
-        self.urn.replace_range(range, &nid)?;
-        // unwrap: NID length range is 2..=32 bytes, so it always fits into non-zero u8
-        self.nid_len = NonZeroU8::new(nid.len().try_into().unwrap()).unwrap();
+        let start = range.start;
+        self.urn.replace_range(range, nid)?;
+        if has_upper {
+            // After a successful replace_range, self.urn is Owned or MutBorrowed; make_lowercase
+            // on those variants is infallible.
+            self.urn.make_lowercase(start..start + nid.len())?;
+        }
+        self.nid_len = nid_len;
         Ok(())
     }
     /// Percent-encoded NSS (Namespace-specific string) identifying the resource.
@@ -372,14 +394,18 @@ impl<'a> UrnSlice<'a> {
     /// # See also
     /// - [`percent::encode_nss`]
     pub fn set_nss(&mut self, nss: &str) -> Result<()> {
-        let mut nss = TriCow::Borrowed(nss);
-        if nss.is_empty() || parse_nss(&mut nss, 0)? != nss.len() {
+        let (end, needs_norm) = validate_nss(nss);
+        if nss.is_empty() || end != nss.len() {
             return Err(Error::InvalidNss);
         }
         // unwrap: NSS length is non-zero as checked above
         let nss_len = NonZeroU32::new(nss.len().try_into().map_err(|_| Error::InvalidNss)?).unwrap();
         let range = self.nss_range();
-        self.urn.replace_range(range, &nss)?;
+        let start = range.start;
+        self.urn.replace_range(range, nss)?;
+        if needs_norm {
+            normalize_range(&mut self.urn, start..start + nss.len())?;
+        }
         self.nss_len = nss_len;
         Ok(())
     }
@@ -409,8 +435,8 @@ impl<'a> UrnSlice<'a> {
     /// - [`percent::encode_r_component`]
     pub fn set_r_component(&mut self, r_component: Option<&str>) -> Result<()> {
         if let Some(rc) = r_component {
-            let mut rc = TriCow::Borrowed(rc);
-            if rc.is_empty() || parse_r_component(&mut rc, 0)? != rc.len() {
+            let (end, needs_norm) = validate_r_component(rc);
+            if rc.is_empty() || end != rc.len() {
                 return Err(Error::InvalidRComponent);
             }
             let rc_len = rc.len().try_into().map_err(|_| Error::InvalidRComponent)?;
@@ -422,7 +448,11 @@ impl<'a> UrnSlice<'a> {
                 self.urn.replace_range(nss_end..nss_end, RCOMP_PREFIX)?;
                 nss_end + RCOMP_PREFIX.len()..nss_end + RCOMP_PREFIX.len()
             };
-            self.urn.replace_range(range, &rc)?;
+            let start = range.start;
+            self.urn.replace_range(range, rc)?;
+            if needs_norm {
+                normalize_range(&mut self.urn, start..start + rc.len())?;
+            }
             self.r_component_len = Some(NonZeroU32::new(rc_len).unwrap());
         } else if let Some(mut range) = self.r_component_range() {
             range.start -= RCOMP_PREFIX.len();
@@ -457,8 +487,8 @@ impl<'a> UrnSlice<'a> {
     /// - [`percent::encode_q_component`]
     pub fn set_q_component(&mut self, q_component: Option<&str>) -> Result<()> {
         if let Some(qc) = q_component {
-            let mut qc = TriCow::Borrowed(qc);
-            if qc.is_empty() || parse_q_component(&mut qc, 0)? != qc.len() {
+            let (end, needs_norm) = validate_q_component(qc);
+            if qc.is_empty() || end != qc.len() {
                 return Err(Error::InvalidQComponent);
             }
             let qc_len = qc.len().try_into().map_err(|_| Error::InvalidQComponent)?;
@@ -470,7 +500,11 @@ impl<'a> UrnSlice<'a> {
                 self.urn.replace_range(pre_qc_end..pre_qc_end, QCOMP_PREFIX)?;
                 pre_qc_end + QCOMP_PREFIX.len()..pre_qc_end + QCOMP_PREFIX.len()
             };
-            self.urn.replace_range(range, &qc)?;
+            let start = range.start;
+            self.urn.replace_range(range, qc)?;
+            if needs_norm {
+                normalize_range(&mut self.urn, start..start + qc.len())?;
+            }
             self.q_component_len = Some(NonZeroU32::new(qc_len).unwrap());
         } else if let Some(mut range) = self.q_component_range() {
             range.start -= QCOMP_PREFIX.len();
@@ -504,8 +538,8 @@ impl<'a> UrnSlice<'a> {
     /// - [`percent::encode_f_component`]
     pub fn set_f_component(&mut self, f_component: Option<&str>) -> Result<()> {
         if let Some(fc) = f_component {
-            let mut fc = TriCow::Borrowed(fc);
-            if parse_f_component(&mut fc, 0)? != fc.len() {
+            let (end, needs_norm) = validate_f_component(fc);
+            if end != fc.len() {
                 return Err(Error::InvalidFComponent);
             }
             let start = if let Some(start) = self.f_component_start() {
@@ -516,7 +550,10 @@ impl<'a> UrnSlice<'a> {
                 self.urn.len()
             };
             let len = self.urn.len();
-            self.urn.replace_range(start..len, &fc)?;
+            self.urn.replace_range(start..len, fc)?;
+            if needs_norm {
+                normalize_range(&mut self.urn, start..start + fc.len())?;
+            }
         } else if let Some(start) = self.f_component_start() {
             let len = self.urn.len();
             self.urn.replace_range(start - FCOMP_PREFIX.len()..len, "")?;

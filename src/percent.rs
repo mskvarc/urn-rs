@@ -112,6 +112,81 @@ pub(crate) fn parse_f_component(s: &mut TriCow, start: usize) -> Result<usize> {
     parse(s, start, PctEncoded::FComponent)
 }
 
+/// Validate a percent-encoded component without mutating. Mirrors `parse()` logic
+/// byte-for-byte, but records whether any `%xx` triplet has an ASCII-lowercase hex
+/// digit (meaning the caller must normalize) rather than uppercasing in place.
+/// Returns `(end, needs_norm)`.
+fn validate(s: &str, start: usize, kind: PctEncoded) -> (usize, bool) {
+    let bytes = s.as_bytes();
+    let mut i = start;
+    let mut needs_norm = false;
+    while i < bytes.len() {
+        i = scan_plain_run(bytes, i);
+        if i >= bytes.len() {
+            break;
+        }
+        let ch = bytes[i];
+        match ch {
+            b'?' => match kind {
+                PctEncoded::FComponent => {}
+                PctEncoded::QComponent if i != start => {}
+                PctEncoded::RComponent if i != start && bytes.get(i + 1) != Some(&b'=') => {}
+                _ => return (i, needs_norm),
+            },
+            b'/' => match kind {
+                PctEncoded::FComponent => {}
+                _ if i != start => {}
+                _ => return (i, needs_norm),
+            },
+            b'%' => {
+                if i + 2 < bytes.len() && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
+                    if bytes[i + 1].is_ascii_lowercase() || bytes[i + 2].is_ascii_lowercase() {
+                        needs_norm = true;
+                    }
+                    i += 3;
+                    continue;
+                }
+                return (i, needs_norm);
+            }
+            _ => return (i, needs_norm),
+        }
+        i += 1;
+    }
+    (bytes.len(), needs_norm)
+}
+
+#[inline]
+pub(crate) fn validate_nss(s: &str) -> (usize, bool) {
+    validate(s, 0, PctEncoded::Nss)
+}
+#[inline]
+pub(crate) fn validate_r_component(s: &str) -> (usize, bool) {
+    validate(s, 0, PctEncoded::RComponent)
+}
+#[inline]
+pub(crate) fn validate_q_component(s: &str) -> (usize, bool) {
+    validate(s, 0, PctEncoded::QComponent)
+}
+#[inline]
+pub(crate) fn validate_f_component(s: &str) -> (usize, bool) {
+    validate(s, 0, PctEncoded::FComponent)
+}
+
+/// Uppercase the hex digits of every `%xx` triplet in `range`. Caller must have
+/// validated the range — malformed `%` tails are ignored rather than rejected.
+pub(crate) fn normalize_range(s: &mut TriCow, range: core::ops::Range<usize>) -> Result<()> {
+    let mut i = range.start;
+    while i + 2 < range.end {
+        if s.as_bytes()[i] == b'%' {
+            s.make_uppercase(i + 1..i + 3)?;
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    Ok(())
+}
+
 /// Iterator that percent-decodes a component byte-by-byte without allocating.
 ///
 /// Yields `Ok(byte)` for each decoded byte. Yields `Err(component_error)` and ends
