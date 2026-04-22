@@ -75,16 +75,7 @@ mod serde;
 
 /// Checks whether a string is a valid NID
 fn is_valid_nid(s: &str) -> bool {
-    // RFC8141:
-    // NID = (alphanum) 0*30(ldh) (alphanum)
-    // ldh = alphanum / "-"
-    //
-    // RFC2141 additionally allows NIDs to end with -
-    let bytes = s.as_bytes();
-    if bytes.len() < 2 || bytes.len() > 32 || bytes[0] == b'-' {
-        return false;
-    }
-    bytes.iter().all(|&b| tables::BYTE_CLASS[b as usize] & tables::NID != 0)
+    check_nid(s).is_ok()
 }
 
 /// Single-pass NID validation plus ASCII-uppercase detection. Returns
