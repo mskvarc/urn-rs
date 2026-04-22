@@ -160,6 +160,16 @@ impl AsRef<[u8]> for Urn {
     }
 }
 
+/// `&Urn` satisfies `AsRef<str>` bounds directly:
+///
+/// ```
+/// # fn main() -> Result<(), urn_rs::Error> {
+/// use urn_rs::Urn;
+/// fn takes<S: AsRef<str>>(s: S) -> usize { s.as_ref().len() }
+/// let u = Urn::try_from("urn:example:foo")?;
+/// assert_eq!(takes(&u), "urn:example:foo".len());
+/// # Ok(()) }
+/// ```
 impl AsRef<str> for Urn {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
