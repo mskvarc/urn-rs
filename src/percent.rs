@@ -526,6 +526,114 @@ fn encode(s: &str, kind: PctEncoded) -> String {
     ret
 }
 
+/// Iterator that percent-encodes a component byte-by-byte without allocating.
+///
+/// Yields one ASCII byte at a time. Bytes that are allowed in their component
+/// (per RFC 8141) pass through as-is; every other byte is replaced by its
+/// `%XX` triplet (three bytes). Multi-byte UTF-8 scalars are encoded by
+/// percent-encoding each of their bytes in turn.
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub struct EncodeIter<'a> {
+    bytes: &'a [u8],
+    i: usize,
+    kind: PctEncoded,
+    pending: [u8; 3],
+    pending_len: u8,
+    pending_pos: u8,
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> EncodeIter<'a> {
+    const fn new(s: &'a str, kind: PctEncoded) -> Self {
+        Self {
+            bytes: s.as_bytes(),
+            i: 0,
+            kind,
+            pending: [0; 3],
+            pending_len: 0,
+            pending_pos: 0,
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> Iterator for EncodeIter<'a> {
+    type Item = u8;
+    fn next(&mut self) -> Option<u8> {
+        if self.pending_pos < self.pending_len {
+            let b = self.pending[self.pending_pos as usize];
+            self.pending_pos += 1;
+            return Some(b);
+        }
+        if self.i >= self.bytes.len() {
+            return None;
+        }
+        let b = self.bytes[self.i];
+        let plain_mask = match self.kind {
+            PctEncoded::Nss => PLAIN_ENC_NSS,
+            _ => PLAIN_ENC_RQF,
+        };
+        if b < 0x80 {
+            let cls = BYTE_CLASS[b as usize];
+            let allowed = cls & plain_mask != 0
+                || match b {
+                    b'?' => match self.kind {
+                        PctEncoded::FComponent => true,
+                        PctEncoded::QComponent => self.i != 0,
+                        PctEncoded::RComponent => self.i != 0 && self.bytes.get(self.i + 1) != Some(&b'='),
+                        PctEncoded::Nss => false,
+                    },
+                    b'/' => match self.kind {
+                        PctEncoded::FComponent => true,
+                        PctEncoded::RComponent | PctEncoded::QComponent => self.i != 0,
+                        PctEncoded::Nss => false,
+                    },
+                    _ => false,
+                };
+            self.i += 1;
+            if allowed {
+                return Some(b);
+            }
+        } else {
+            self.i += 1;
+        }
+        let hex = to_hex(b);
+        self.pending = [b'%', hex[0], hex[1]];
+        self.pending_len = 3;
+        self.pending_pos = 1;
+        Some(b'%')
+    }
+}
+
+/// Percent-encode an NSS byte-by-byte without allocating. See [`encode_nss`].
+#[cfg(feature = "alloc")]
+#[must_use]
+pub const fn encode_nss_iter(s: &str) -> EncodeIter<'_> {
+    EncodeIter::new(s, PctEncoded::Nss)
+}
+
+/// Percent-encode an r-component byte-by-byte without allocating. See [`encode_r_component`].
+#[cfg(feature = "alloc")]
+#[must_use]
+pub const fn encode_r_component_iter(s: &str) -> EncodeIter<'_> {
+    EncodeIter::new(s, PctEncoded::RComponent)
+}
+
+/// Percent-encode a q-component byte-by-byte without allocating. See [`encode_q_component`].
+#[cfg(feature = "alloc")]
+#[must_use]
+pub const fn encode_q_component_iter(s: &str) -> EncodeIter<'_> {
+    EncodeIter::new(s, PctEncoded::QComponent)
+}
+
+/// Percent-encode an f-component byte-by-byte without allocating. See [`encode_f_component`].
+#[cfg(feature = "alloc")]
+#[must_use]
+pub const fn encode_f_component_iter(s: &str) -> EncodeIter<'_> {
+    EncodeIter::new(s, PctEncoded::FComponent)
+}
+
 /// Percent-decode a NSS according to the RFC
 ///
 /// ```
