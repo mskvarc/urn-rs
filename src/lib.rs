@@ -27,7 +27,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{borrow::ToOwned, string::String};
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
 #[cfg(feature = "alloc")]
 use core::str::FromStr;
 use core::{
@@ -210,6 +210,9 @@ pub enum Error {
     /// is disabled.
     #[error("an allocation was required, but not possible")]
     AllocRequired,
+    /// The input bytes are not valid UTF-8.
+    #[error("urn contains invalid utf-8")]
+    InvalidUtf8,
 }
 
 type Result<T, E = Error> = core::result::Result<T, E>;
@@ -695,6 +698,32 @@ impl TryFrom<String> for UrnSlice<'static> {
     type Error = Error;
     fn try_from(value: String) -> Result<Self> {
         parse_urn(TriCow::Owned(value))
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for UrnSlice<'a> {
+    type Error = Error;
+    fn try_from(value: &'a [u8]) -> Result<Self> {
+        let s = core::str::from_utf8(value).map_err(|_| Error::InvalidUtf8)?;
+        parse_urn(TriCow::Borrowed(s))
+    }
+}
+
+impl<'a> TryFrom<&'a mut [u8]> for UrnSlice<'a> {
+    type Error = Error;
+    fn try_from(value: &'a mut [u8]) -> Result<Self> {
+        let s = core::str::from_utf8_mut(value).map_err(|_| Error::InvalidUtf8)?;
+        parse_urn(TriCow::MutBorrowed(s))
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl TryFrom<Vec<u8>> for UrnSlice<'static> {
+    type Error = Error;
+    fn try_from(value: Vec<u8>) -> Result<Self> {
+        let s = String::from_utf8(value).map_err(|_| Error::InvalidUtf8)?;
+        parse_urn(TriCow::Owned(s))
     }
 }
 

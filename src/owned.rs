@@ -1,6 +1,6 @@
 use crate::{Error, Result, UrnSlice};
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{borrow::ToOwned, string::String};
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
 use core::{
     borrow::{Borrow, BorrowMut},
     cmp::Ordering,
@@ -206,6 +206,27 @@ impl<'a> TryFrom<&'a mut str> for Urn {
 impl TryFrom<String> for Urn {
     type Error = Error;
     fn try_from(value: String) -> Result<Self> {
+        UrnSlice::try_from(value).map(UrnSlice::into_owned)
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for Urn {
+    type Error = Error;
+    fn try_from(value: &'a [u8]) -> Result<Self> {
+        UrnSlice::try_from(value).map(UrnSlice::into_owned)
+    }
+}
+
+impl<'a> TryFrom<&'a mut [u8]> for Urn {
+    type Error = Error;
+    fn try_from(value: &'a mut [u8]) -> Result<Self> {
+        UrnSlice::try_from(value).map(UrnSlice::into_owned)
+    }
+}
+
+impl TryFrom<Vec<u8>> for Urn {
+    type Error = Error;
+    fn try_from(value: Vec<u8>) -> Result<Self> {
         UrnSlice::try_from(value).map(UrnSlice::into_owned)
     }
 }
