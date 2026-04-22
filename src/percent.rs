@@ -395,6 +395,33 @@ const fn to_hex(n: u8) -> [u8; 2] {
     [a, b]
 }
 
+/// Scan a contiguous run of bytes that are unconditionally plain for the encoder
+/// under `plain_mask`. Mirrors [`scan_plain_run`] but with a dynamic mask. The
+/// `PLAIN_ENC_NSS` / `PLAIN_ENC_RQF` bits are only set for ASCII bytes, so a run
+/// returned here is guaranteed to be valid UTF-8.
+#[cfg(feature = "alloc")]
+#[inline]
+fn scan_enc_plain_run(bytes: &[u8], mut i: usize, plain_mask: u8) -> usize {
+    while i + 8 <= bytes.len() {
+        let c: [u8; 8] = bytes[i..i + 8].try_into().unwrap();
+        let mut mask: u32 = 0;
+        for k in 0..8 {
+            if BYTE_CLASS[c[k] as usize] & plain_mask == 0 {
+                mask |= 1 << k;
+            }
+        }
+        if mask == 0 {
+            i += 8;
+        } else {
+            return i + mask.trailing_zeros() as usize;
+        }
+    }
+    while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & plain_mask != 0 {
+        i += 1;
+    }
+    i
+}
+
 #[cfg(feature = "alloc")]
 fn encode(s: &str, kind: PctEncoded) -> String {
     let bytes = s.as_bytes();
@@ -405,6 +432,16 @@ fn encode(s: &str, kind: PctEncoded) -> String {
     };
     let mut i = 0;
     while i < bytes.len() {
+        let run_end = scan_enc_plain_run(bytes, i, plain_mask);
+        if run_end > i {
+            // SAFETY: `plain_mask` bits in `BYTE_CLASS` are only set for ASCII
+            // bytes (< 0x80), so the run is valid UTF-8.
+            ret.push_str(unsafe { core::str::from_utf8_unchecked(&bytes[i..run_end]) });
+            i = run_end;
+            if i >= bytes.len() {
+                break;
+            }
+        }
         let b = bytes[i];
         if b < 0x80 {
             let cls = BYTE_CLASS[b as usize];
