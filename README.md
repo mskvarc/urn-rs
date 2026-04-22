@@ -61,6 +61,8 @@ By default, equality compares only the significant portion of the URN:
 
 Enable `exact-eq` when distinct r/q/f components must produce distinct map keys — equality then covers the whole normalized URN.
 
+Because default equality can collapse distinct `as_str()` outputs to the same value, `Urn` and `UrnSlice` do **not** implement `Borrow<str>` — doing so would violate the `Borrow` / `Eq` / `Hash` contract. For `HashMap` lookup keyed by the raw string, key on `String` directly, or enable `exact-eq` to make the hash contract match `as_str()`.
+
 ## Benchmarks
 
 ```sh

@@ -229,6 +229,18 @@ type Result<T, E = Error> = core::result::Result<T, E>;
 /// equivalence rules, these aren't accounted for in this implementation (Meaning there might be
 /// false negatives for some namespaces). There will, however, be no false positives.
 ///
+/// # Equivalence and the `Borrow`/`Hash` contract
+///
+/// With the default (`exact-eq` **off**) equivalence, two URNs can compare `Eq`-equal while
+/// holding distinct `as_str()` representations (they may differ in r/q/f-components). A
+/// hypothetical `Borrow<str>` impl would therefore violate the [`Borrow`] / [`Eq`] / [`Hash`]
+/// contract, so this crate intentionally does not provide one. Callers who need `HashMap`
+/// lookup keyed by the raw URN string should either key on `String` directly, call
+/// `.as_str().to_owned()` after parsing, or enable the `exact-eq` feature — the latter makes
+/// the hash contract match `as_str()`, at the cost of RFC 8141 §3 equivalence.
+///
+/// [`Borrow`]: core::borrow::Borrow
+///
 /// Unlike [`Urn`]:
 /// - When created via `TryFrom<&str>`, allocations only occur if the URN isn't normalized
 ///   (uppercase percent-encoded characters and lowercase `urn` scheme and NID)
