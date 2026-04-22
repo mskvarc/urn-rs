@@ -56,10 +56,7 @@ fn scan_plain_run(bytes: &[u8], mut i: usize) -> usize {
 fn scan_needs_hex_upper(bytes: &[u8], start: usize) -> bool {
     let mut i = start;
     while i + 2 < bytes.len() {
-        if bytes[i] == b'%'
-            && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0
-            && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0
-        {
+        if bytes[i] == b'%' && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
             if bytes[i + 1].is_ascii_lowercase() || bytes[i + 2].is_ascii_lowercase() {
                 return true;
             }

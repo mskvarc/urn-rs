@@ -61,7 +61,15 @@ pub mod percent;
 #[cfg(not(feature = "alloc"))]
 mod percent;
 use percent::{
-    normalize_range, parse_f_component, parse_nss, parse_q_component, parse_r_component, validate_f_component, validate_nss, validate_q_component, validate_r_component,
+    normalize_range,
+    parse_f_component,
+    parse_nss,
+    parse_q_component,
+    parse_r_component,
+    validate_f_component,
+    validate_nss,
+    validate_q_component,
+    validate_r_component,
 };
 
 #[cfg(feature = "serde")]
