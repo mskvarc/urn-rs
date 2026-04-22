@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.9.2] - 2026-04-22
+
+### 🎨 Style
+- Reformat code
+
+### 🚀 Features
+- Encode iterators
+- Add slice handling
+- Add tryfrom implementations for byte slices
+
+### 🧪 Tests
+- Add missing tests
+
+### 🧹 Chores
+- Bump version
+
+## [v0.9.1] - 2026-04-22
+
+### 🎨 Style
+- Format code
+- Reformat code
+
+### 🐛 Bug Fixes
+- Clippy warnings
+- Misc clippy warnings
+
+### 📚 Documentation
+- Expand doc comments
+- Eq clarification
+- Update changelog
+
+### 🔧 Refactor
+- Rework error handling
+
+### 🧪 Tests
+- Make all tests pass again
+
+### 🧹 Chores
+- Bump version
+- De-duplica nid checks
+
 ## [v0.9.0] - 2026-04-22
 
 ### ⚡ Performance
