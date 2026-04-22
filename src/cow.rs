@@ -107,6 +107,7 @@ impl TriCow<'_> {
             }
         }
     }
+    #[cfg_attr(not(feature = "alloc"), allow(clippy::missing_const_for_fn))]
     fn to_mut(&mut self) -> Result<&mut str> {
         match self {
             #[cfg(feature = "alloc")]

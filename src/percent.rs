@@ -4,11 +4,11 @@
 #[cfg(feature = "alloc")]
 use crate::Error;
 #[cfg(feature = "alloc")]
-use crate::tables::HEX_VAL;
+use crate::tables::{HEX_VAL, PLAIN_ENC_NSS, PLAIN_ENC_RQF};
 use crate::{
     Result,
     TriCow,
-    tables::{BYTE_CLASS, HEX, PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE},
+    tables::{BYTE_CLASS, HEX, PLAIN_PARSE},
 };
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::{string::String, vec::Vec};

@@ -83,6 +83,7 @@ const fn build_byte_class() -> [u8; 256] {
 
 pub(crate) static BYTE_CLASS: [u8; 256] = build_byte_class();
 
+#[cfg(feature = "alloc")]
 const fn build_hex_val() -> [u8; 256] {
     let mut t = [0xFFu8; 256];
     let mut i = 0;
