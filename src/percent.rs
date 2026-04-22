@@ -617,9 +617,12 @@ pub fn encode_f_component(s: &str) -> Result<String> {
     Ok(encode(s, PctEncoded::FComponent))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 #[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 mod swar_tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
+
     use super::{BYTE_CLASS, PLAIN_PARSE, scan_plain_run};
 
     fn scan_plain_scalar(bytes: &[u8], mut i: usize) -> usize {

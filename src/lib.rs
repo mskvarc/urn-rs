@@ -337,10 +337,15 @@ impl<'a> UrnSlice<'a> {
     /// The NSS and the r/q/f components are otherwise preserved as-given.
     ///
     /// ```
-    /// # use urn_rs::UrnSlice; fn test_main() -> Result<(), urn_rs::Error> {
+    /// # #[cfg(not(feature = "alloc"))] fn main() {}
+    /// # #[cfg(feature = "alloc")]
+    /// # fn main() { test_main().unwrap() }
+    /// # #[cfg(feature = "alloc")]
+    /// # fn test_main() -> Result<(), urn_rs::Error> {
+    /// use urn_rs::UrnSlice;
     /// let urn = UrnSlice::try_from("uRn:eXaMpLe:%3d%3a")?;
     /// assert_eq!(urn.as_str(), "urn:example:%3D%3A");
-    /// # Ok(()) } test_main().unwrap();
+    /// # Ok(()) }
     /// ```
     #[must_use]
     #[inline]
