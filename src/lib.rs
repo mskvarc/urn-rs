@@ -259,6 +259,26 @@ pub struct UrnSlice<'a> {
     q_component_len: Option<NonZeroU32>,
 }
 
+impl UrnSlice<'static> {
+    /// Parse a `&'static str` into a `UrnSlice<'static>`.
+    ///
+    /// When the input is already normalized (lowercase `urn:` scheme + NID, uppercase hex in
+    /// every `%XX` triplet), this is zero-allocation — the returned slice borrows the input.
+    /// Otherwise the parser promotes to an owned buffer to perform the normalization.
+    ///
+    /// ```
+    /// # use urn_rs::UrnSlice;
+    /// let u = UrnSlice::from_static("urn:example:foo").unwrap();
+    /// assert_eq!(u.as_str(), "urn:example:foo");
+    /// ```
+    ///
+    /// # Errors
+    /// Returns the component-specific error variant on validation failure.
+    pub fn from_static(s: &'static str) -> Result<UrnSlice<'static>> {
+        parse_urn(TriCow::Borrowed(s))
+    }
+}
+
 impl<'a> UrnSlice<'a> {
     #[inline]
     const fn nid_range(&self) -> Range<usize> {
@@ -818,6 +838,21 @@ impl<'a> UrnBuilder<'a> {
     /// In case of a validation failure, returns an error specifying the component that failed
     /// validation
     pub fn build(self) -> Result<Urn> {
+        self.build_inner().map(Urn)
+    }
+
+    /// Same as [`build`](Self::build), but returns a [`UrnSlice<'static>`] directly — useful for
+    /// callers storing `UrnSlice<'static>` who don't want to go through the [`Urn`] newtype.
+    ///
+    /// # Errors
+    ///
+    /// In case of a validation failure, returns an error specifying the component that failed
+    /// validation
+    pub fn build_slice(self) -> Result<UrnSlice<'static>> {
+        self.build_inner()
+    }
+
+    fn build_inner(self) -> Result<UrnSlice<'static>> {
         if !is_valid_nid(self.nid) {
             return Err(Error::InvalidNid);
         }
@@ -918,14 +953,14 @@ impl<'a> UrnBuilder<'a> {
             .q_component
             .map(|x| u32::try_from(x.len()).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidQComponent))
             .transpose()?;
-        Ok(Urn(UrnSlice {
+        Ok(UrnSlice {
             // we already had to allocate since we use a builder, obviously allocations are allowed
             urn: s,
             nid_len,
             nss_len,
             r_component_len,
             q_component_len,
-        }))
+        })
     }
 }
 
