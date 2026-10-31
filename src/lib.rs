@@ -35,6 +35,7 @@ use core::{
     convert::{TryFrom, TryInto},
     fmt,
     hash::{self, Hash},
+    iter::FusedIterator,
     num::{NonZeroU8, NonZeroU32},
     ops::Range,
     result,
@@ -531,6 +532,35 @@ impl UrnSlice<'_> {
     pub fn q_component(&self) -> Option<&str> {
         self.q_component_range().map(|range| &self.urn[range])
     }
+    /// Iterator over the `key=value` pairs of the q-component.
+    ///
+    /// RFC 8141 gives the q-component the syntax and semantics of a URI query, so it's split the
+    /// way query strings conventionally are: pairs are separated by `&`, and each pair splits at its
+    /// first `=`. A pair without `=` yields `None` as its value, which keeps `key` and `key=`
+    /// apart. Empty pairs (from `&&` or a trailing `&`) are skipped. A URN without a q-component
+    /// yields nothing.
+    ///
+    /// Keys and values are returned as they appear in the URN, still percent-encoded. `+` isn't
+    /// treated as a space, since that's an HTML form convention, not part of URI syntax.
+    ///
+    /// ```
+    /// # use urn_rs::UrnSlice; fn test_main() -> Result<(), urn_rs::Error> {
+    /// let urn = UrnSlice::try_from("urn:example:weather?=op=map&lat=39.56&lon=-104.85&verbose")?;
+    /// let pairs: Vec<_> = urn.q_pairs().collect();
+    /// assert_eq!(
+    ///     pairs,
+    ///     [("op", Some("map")), ("lat", Some("39.56")), ("lon", Some("-104.85")), ("verbose", None)]
+    /// );
+    /// # Ok(()) } test_main().unwrap();
+    /// ```
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_param`]")]
+    #[must_use]
+    pub fn q_pairs(&self) -> QPairs<'_> {
+        QPairs {
+            inner: self.q_component().unwrap_or_default().split('&'),
+        }
+    }
     /// Set the q-component (must be [a valid
     /// q-component](https://datatracker.ietf.org/doc/html/rfc8141#section-2) and use
     /// percent-encoding).
@@ -613,6 +643,38 @@ impl UrnSlice<'_> {
         Ok(())
     }
 }
+
+/// Iterator over the q-component's `key=value` pairs, returned by [`UrnSlice::q_pairs`].
+///
+/// Yields `(key, value)` with both still percent-encoded; `value` is `None` for a pair without `=`.
+#[derive(Clone, Debug)]
+pub struct QPairs<'a> {
+    inner: str::Split<'a, char>,
+}
+
+impl<'a> QPairs<'a> {
+    fn split_pair(pair: &'a str) -> Option<(&'a str, Option<&'a str>)> {
+        if pair.is_empty() {
+            return None;
+        }
+        Some(pair.split_once('=').map_or((pair, None), |(key, value)| (key, Some(value))))
+    }
+}
+
+impl<'a> Iterator for QPairs<'a> {
+    type Item = (&'a str, Option<&'a str>);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.by_ref().find_map(Self::split_pair)
+    }
+}
+
+impl DoubleEndedIterator for QPairs<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.by_ref().rev().find_map(Self::split_pair)
+    }
+}
+
+impl FusedIterator for QPairs<'_> {}
 
 impl fmt::Debug for UrnSlice<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1628,5 +1690,46 @@ mod tests {
             assert!(decode_f_component_iter(bad).any(|b| b.is_err()), "{bad:?}");
         }
         assert_eq!(decode_f_component("%41%4a"), Ok(String::from("AJ")));
+    }
+
+    #[test]
+    fn q_pairs_split() -> Result<()> {
+        type Pairs<'a> = &'a [(&'a str, Option<&'a str>)];
+        let cases: &[(&str, Pairs<'_>)] = &[
+            ("urn:example:nss", &[]),
+            ("urn:example:nss?+r", &[]),
+            ("urn:example:nss?=a", &[("a", None)]),
+            ("urn:example:nss?=a=", &[("a", Some(""))]),
+            ("urn:example:nss?==b", &[("", Some("b"))]),
+            ("urn:example:nss?=a=b=c&d", &[("a", Some("b=c")), ("d", None)]),
+            ("urn:example:nss?=&&a=1&&b=2&", &[("a", Some("1")), ("b", Some("2"))]),
+            ("urn:example:nss?=&", &[]),
+            ("urn:example:nss?=a=x+y%2B&p=/q?r#f", &[("a", Some("x+y%2B")), ("p", Some("/q?r"))]),
+        ];
+        for &(urn, want) in cases {
+            let urn = UrnSlice::try_from(urn)?;
+            assert!(urn.q_pairs().eq(want.iter().copied()), "{urn}");
+            assert!(urn.q_pairs().rev().eq(want.iter().rev().copied()), "{urn} rev");
+        }
+        let urn = UrnSlice::try_from("urn:example:nss?=a&b&c")?;
+        let mut pairs = urn.q_pairs();
+        assert_eq!(pairs.next(), Some(("a", None)));
+        assert_eq!(pairs.next_back(), Some(("c", None)));
+        assert_eq!(pairs.next(), Some(("b", None)));
+        assert_eq!(pairs.next_back(), None);
+        assert_eq!(pairs.next(), None);
+        Ok(())
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_q_param_accepts_pair_positions() {
+        use crate::percent::decode_q_param;
+        for (input, want) in [("", ""), ("/a", "/a"), ("?a", "?a"), ("a%3D%26b", "a=&b"), ("caf%C3%A9", "caf\u{e9}")] {
+            assert_eq!(decode_q_param(input).as_deref(), Ok(want), "{input:?}");
+        }
+        for bad in ["a#b", "a%4", "%gg", "%FF", "a b"] {
+            assert_eq!(decode_q_param(bad), Err(Error::InvalidQComponent), "{bad:?}");
+        }
     }
 }

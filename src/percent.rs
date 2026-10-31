@@ -158,6 +158,32 @@ pub fn decode_r_component(s: &str) -> Result<String> {
 pub fn decode_q_component(s: &str) -> Result<String> {
     decode(s, PctEncoded::QComponent).ok_or(Error::InvalidQComponent)
 }
+/// Percent-decode one key or value from [`UrnSlice::q_pairs`](crate::UrnSlice::q_pairs).
+///
+/// Unlike [`decode_q_component`], this accepts an empty string and a leading `/` or `?`,
+/// since both are valid inside a pair (`urn:example:a?=k=&path=/x`).
+///
+/// ```
+/// # use urn_rs::UrnSlice; fn test_main() -> Result<(), urn_rs::Error> {
+/// use urn_rs::percent::decode_q_param;
+///
+/// let urn = UrnSlice::try_from("urn:example:nss?=drink=caf%C3%A9&path=/a%20b")?;
+/// let decoded = urn
+///     .q_pairs()
+///     .map(|(k, v)| Ok((decode_q_param(k)?, v.map(decode_q_param).transpose()?)))
+///     .collect::<Result<Vec<_>, urn_rs::Error>>()?;
+/// assert_eq!(decoded, [("drink".into(), Some("café".into())), ("path".into(), Some("/a b".into()))]);
+/// # Ok(()) } test_main().unwrap();
+/// ```
+///
+/// # Errors
+/// Returns [`Error::InvalidQComponent`] if `s` holds a character a q-component can't contain,
+/// a malformed percent-encoding, or bytes that don't decode to UTF-8.
+pub fn decode_q_param(s: &str) -> Result<String> {
+    // Inside a pair, the q-component's position rules (non-empty, no leading `/` or `?`) don't
+    // apply, and the remaining character set (pchar / "/" / "?") is the f-component's.
+    decode(s, PctEncoded::FComponent).ok_or(Error::InvalidQComponent)
+}
 /// Percent-decode an f-component according to the RFC
 ///
 /// ```
