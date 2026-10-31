@@ -14,6 +14,20 @@ pub enum TriCow<'a> {
     MutBorrowed(&'a mut str),
 }
 
+/// `Owned` clones its buffer and `Borrowed` copies the reference. `MutBorrowed` is copied into a
+/// new `Owned` buffer, because a `&'a mut str` can't be shared. Without `alloc` that copy is
+/// impossible, so `Clone` is only implemented when `alloc` is enabled.
+#[cfg(feature = "alloc")]
+impl Clone for TriCow<'_> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Owned(s) => Self::Owned(s.clone()),
+            Self::Borrowed(s) => Self::Borrowed(s),
+            Self::MutBorrowed(s) => Self::Owned((**s).to_owned()),
+        }
+    }
+}
+
 impl Deref for TriCow<'_> {
     type Target = str;
     fn deref(&self) -> &Self::Target {

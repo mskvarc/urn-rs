@@ -33,7 +33,7 @@ use core::{
 /// `FromStr` requires a single allocation, but `TryFrom<String>` doesn't, so prefer `TryFrom` when
 /// possible.
 #[repr(transparent)]
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Urn(pub(crate) UrnSlice<'static>);
 
 impl<'a> Borrow<UrnSlice<'a>> for Urn {
@@ -96,12 +96,6 @@ impl<'a> From<&mut UrnSlice<'a>> for Urn {
             q_component_len: value.q_component_len,
             r_component_len: value.r_component_len,
         })
-    }
-}
-
-impl Clone for Urn {
-    fn clone(&self) -> Self {
-        self.0.to_owned()
     }
 }
 

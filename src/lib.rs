@@ -250,6 +250,13 @@ type Result<T, E = Error> = core::result::Result<T, E>;
 /// - When created via `TryFrom<&mut str>`, no allocations are done at all.
 ///
 /// `FromStr` is always required to allocate, so you should use `TryFrom` when possible.
+///
+/// # Cloning
+///
+/// `Clone` requires the `alloc` feature. Cloning a slice created from `&str` copies only the
+/// reference, and cloning an owned slice copies its buffer. A slice created from `&mut str`
+/// can't share that mutable borrow, so its clone owns a copy of the string.
+#[cfg_attr(feature = "alloc", derive(Clone))]
 pub struct UrnSlice<'a> {
     // Entire URN string
     urn: TriCow<'a>,
@@ -589,15 +596,6 @@ impl<'a> UrnSlice<'a> {
             self.urn.replace_range(start - FCOMP_PREFIX.len()..len, "")?;
         }
         Ok(())
-    }
-}
-
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-impl<'a> ToOwned for UrnSlice<'a> {
-    type Owned = Urn;
-    fn to_owned(&self) -> Self::Owned {
-        Urn::from(self)
     }
 }
 
@@ -1260,5 +1258,42 @@ mod tests {
         assert_eq!(r, encode_r_component("?x").unwrap().into_bytes());
         let r = encode_r_component_iter("x?y").collect::<Vec<u8>>();
         assert_eq!(r, encode_r_component("x?y").unwrap().into_bytes());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn clone_slice() {
+        // Borrowed: clone shares the original buffer and keeps component boundaries.
+        let src = "urn:example:a?+r?=q#f";
+        let borrowed = UrnSlice::try_from(src).unwrap();
+        let cloned = borrowed.clone();
+        assert!(matches!(cloned.urn, TriCow::Borrowed(_)));
+        assert_eq!(cloned.as_str().as_ptr(), src.as_ptr());
+        assert_eq!(cloned.as_str(), src);
+        assert_eq!(cloned.r_component(), Some("r"));
+        assert_eq!(cloned.q_component(), Some("q"));
+        assert_eq!(cloned.f_component(), Some("f"));
+
+        // Mutating a clone leaves the original untouched.
+        let mut edited = borrowed.clone();
+        edited.set_nss("b").unwrap();
+        assert_eq!(edited.as_str(), "urn:example:b?+r?=q#f");
+        assert_eq!(borrowed.as_str(), src);
+
+        // MutBorrowed: clone owns a normalized copy; the original borrow stays valid.
+        let mut buf = String::from("URN:EXAMPLE:a%2f");
+        let mut_borrowed = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+        let cloned = mut_borrowed.clone();
+        assert!(matches!(cloned.urn, TriCow::Owned(_)));
+        assert_eq!(cloned.as_str(), "urn:example:a%2F");
+        assert_eq!(cloned, mut_borrowed);
+        drop(mut_borrowed);
+        assert_eq!(buf, "urn:example:a%2F");
+
+        // Owned: clone gets its own buffer.
+        let owned = UrnSlice::try_from(String::from("urn:example:x")).unwrap();
+        let cloned = owned.clone();
+        assert_ne!(cloned.as_str().as_ptr(), owned.as_str().as_ptr());
+        assert_eq!(cloned.as_str(), owned.as_str());
     }
 }
