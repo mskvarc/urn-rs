@@ -1183,6 +1183,33 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "alloc")]
+    fn decode_rejects_empty_required_components() {
+        use crate::percent::{
+            decode_f_component,
+            decode_f_component_iter,
+            decode_nss,
+            decode_nss_iter,
+            decode_q_component,
+            decode_q_component_iter,
+            decode_r_component,
+            decode_r_component_iter,
+        };
+        assert_eq!(decode_nss(""), Err(Error::InvalidNss));
+        assert_eq!(decode_r_component(""), Err(Error::InvalidRComponent));
+        assert_eq!(decode_q_component(""), Err(Error::InvalidQComponent));
+        assert_eq!(decode_f_component(""), Ok(String::new()));
+        assert_eq!(decode_nss_iter("").collect::<Result<Vec<u8>>>(), Err(Error::InvalidNss));
+        assert_eq!(decode_r_component_iter("").collect::<Result<Vec<u8>>>(), Err(Error::InvalidRComponent));
+        assert_eq!(decode_q_component_iter("").collect::<Result<Vec<u8>>>(), Err(Error::InvalidQComponent));
+        assert_eq!(decode_f_component_iter("").collect::<Result<Vec<u8>>>(), Ok(Vec::new()));
+        // The error is yielded once, then the iterator ends.
+        let mut iter = decode_nss_iter("");
+        assert_eq!(iter.next(), Some(Err(Error::InvalidNss)));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
     fn byte_slice_try_from_roundtrip() {
         let bytes: &[u8] = b"urn:example:foo";
         let urn = UrnSlice::try_from(bytes).unwrap();

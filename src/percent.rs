@@ -248,7 +248,19 @@ impl<'a> DecodeIter<'a> {
 impl Iterator for DecodeIter<'_> {
     type Item = Result<u8>;
     fn next(&mut self) -> Option<Result<u8>> {
-        if self.done || self.i >= self.bytes.len() {
+        if self.done {
+            return None;
+        }
+        if self.i >= self.bytes.len() {
+            // The NSS, r- and q-components need at least one character; the f-component may be empty.
+            let may_be_empty = match self.kind {
+                PctEncoded::FComponent => true,
+                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => false,
+            };
+            if self.bytes.is_empty() && !may_be_empty {
+                self.done = true;
+                return Some(Err(self.err));
+            }
             return None;
         }
         let i = self.i;
