@@ -871,9 +871,7 @@ impl<'a> UrnBuilder<'a> {
     }
 
     fn build_inner(self) -> Result<UrnSlice<'static>> {
-        if !is_valid_nid(self.nid) {
-            return Err(Error::InvalidNid);
-        }
+        let nid_has_upper = check_nid(self.nid)?;
         if self.nss.is_empty() {
             return Err(Error::InvalidNss);
         }
@@ -921,7 +919,9 @@ impl<'a> UrnBuilder<'a> {
             + self.f_component.map_or(0, |x| FCOMP_PREFIX.len() + x.len());
         let mut buf = String::with_capacity(total);
         buf.push_str(URN_PREFIX);
+        let nid_start = buf.len();
         buf.push_str(self.nid);
+        let nid_end = buf.len();
         buf.push_str(NID_NSS_SEPARATOR);
         let nss_start = buf.len();
         buf.push_str(self.nss);
@@ -947,17 +947,19 @@ impl<'a> UrnBuilder<'a> {
         });
 
         let mut s = TriCow::Owned(buf);
-        if nss_needs_norm {
-            normalize_range(&mut s, nss_start..nss_end)?;
+        // Parsing lowercases the NID, so the builder must too, or the two give unequal URNs.
+        if nid_has_upper {
+            s.make_lowercase(nid_start..nid_end)?;
         }
-        if let Some(range) = rc_range.as_ref().filter(|_| rc_needs_norm) {
-            normalize_range(&mut s, range.clone())?;
-        }
-        if let Some(range) = qc_range.as_ref().filter(|_| qc_needs_norm) {
-            normalize_range(&mut s, range.clone())?;
-        }
-        if let Some(range) = fc_range.as_ref().filter(|_| fc_needs_norm) {
-            normalize_range(&mut s, range.clone())?;
+        for (range, needs_norm) in [
+            (Some(nss_start..nss_end), nss_needs_norm),
+            (rc_range, rc_needs_norm),
+            (qc_range, qc_needs_norm),
+            (fc_range, fc_needs_norm),
+        ] {
+            if let Some(range) = range.filter(|_| needs_norm) {
+                normalize_range(&mut s, range)?;
+            }
         }
         // NID length range is 2..=32 bytes, so it always fits into non-zero u8.
         let nid_len = u8::try_from(self.nid.len()).ok().and_then(NonZeroU8::new).ok_or(Error::InvalidNid)?;
@@ -1310,6 +1312,16 @@ mod tests {
 
         #[cfg(feature = "alloc")]
         assert_eq!(UrnBuilder::new("URN", "x").build().unwrap_err(), Error::InvalidNid);
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn builder_lowercases_nid() {
+        let built = UrnBuilder::new("A0", "A").build().unwrap();
+        assert_eq!(built.as_str(), "urn:a0:A");
+        assert_eq!(built.nid(), "a0");
+        assert_eq!(built, "urn:A0:A".parse::<Urn>().unwrap());
+        assert_eq!(UrnBuilder::new("Ex-NID", "x").build_slice().unwrap().as_str(), "urn:ex-nid:x");
     }
 
     #[cfg(feature = "alloc")]
