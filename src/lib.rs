@@ -81,9 +81,12 @@ fn is_valid_nid(s: &str) -> bool {
 
 /// Single-pass NID validation plus ASCII-uppercase detection. Returns
 /// `Ok(has_upper)` for a valid NID, `Err(InvalidNid)` otherwise.
+///
+/// RFC 8141: `NID = (alphanum) 0*30(ldh) (alphanum)`, so 2 to 32 letters, digits and `-`, not
+/// starting or ending with `-`. RFC 2141 allowed a trailing `-`; RFC 8141 Appendix B removed it.
 fn check_nid(s: &str) -> Result<bool> {
     let bytes = s.as_bytes();
-    if bytes.len() < 2 || bytes.len() > 32 || bytes[0] == b'-' {
+    if !(2..=32).contains(&bytes.len()) || bytes.starts_with(b"-") || bytes.ends_with(b"-") {
         return Err(Error::InvalidNid);
     }
     let mut has_upper = false;
@@ -192,7 +195,8 @@ pub enum Error {
     /// The URN has an invalid scheme.
     #[error("invalid urn scheme")]
     InvalidScheme,
-    /// The URN has an invalid NID (Namespace ID).
+    /// The URN has an invalid NID (Namespace ID). A valid NID is 2 to 32 ASCII letters, digits
+    /// and `-`, and doesn't start or end with `-`.
     #[error("invalid urn nid (namespace id)")]
     InvalidNid,
     /// The URN has an invalid NSS (Namespace-specific string).
@@ -1265,6 +1269,22 @@ mod tests {
         assert_eq!(r, encode_r_component("?x").unwrap().into_bytes());
         let r = encode_r_component_iter("x?y").collect::<Vec<u8>>();
         assert_eq!(r, encode_r_component("x?y").unwrap().into_bytes());
+    }
+
+    #[test]
+    fn nid_trailing_hyphen_rejected() {
+        assert_eq!(UrnSlice::try_from("urn:ab-:x").unwrap_err(), Error::InvalidNid);
+        // With no NSS separator, a NID-shaped prefix ending in '-' is still a NID error.
+        assert_eq!(UrnSlice::try_from("urn:ab-").unwrap_err(), Error::InvalidNid);
+        assert_eq!(UrnSlice::try_from("urn:a-b:x").unwrap().nid(), "a-b");
+
+        let mut buf = *b"urn:ab:x";
+        let mut urn = UrnSlice::try_from(&mut buf[..]).unwrap();
+        assert_eq!(urn.set_nid("cd-"), Err(Error::InvalidNid));
+        assert_eq!(urn.as_str(), "urn:ab:x", "a rejected set_nid leaves the URN unchanged");
+
+        #[cfg(feature = "alloc")]
+        assert_eq!(UrnBuilder::new("ab-", "x").build().unwrap_err(), Error::InvalidNid);
     }
 
     #[cfg(feature = "alloc")]
