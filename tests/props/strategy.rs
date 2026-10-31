@@ -59,10 +59,15 @@ pub(crate) fn nid_value() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Ways to land just outside a component's grammar: a cut-off or non-hex `%` triplet at the end,
+/// or a leading `?` or `/` (valid only in the f-component).
+const NEAR_MISSES: &[(&str, &str)] = &[("", "%"), ("", "%4"), ("", "%a"), ("", "%gA"), ("", "%Ag"), ("?", ""), ("/", "")];
+
 /// A value for a `kind` component slot: usually valid, sometimes not.
 pub(crate) fn component_value(kind: Kind) -> impl Strategy<Value = String> {
     prop_oneof![
         6 => component(kind),
+        1 => (component(kind), prop::sample::select(NEAR_MISSES)).prop_map(|(s, (before, after))| format!("{before}{s}{after}")),
         1 => (component(kind), tricky(), any::<Index>()).prop_map(|(s, t, at)| insert(&s, &t, at)),
         1 => tricky(),
         1 => Just(String::new()),

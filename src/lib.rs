@@ -989,7 +989,10 @@ mod tests {
     use super::*;
 
     #[cfg(not(feature = "std"))]
-    use super::alloc::string::ToString;
+    use super::alloc::{
+        format,
+        string::{String, ToString},
+    };
     #[cfg(all(not(feature = "std"), feature = "alloc"))]
     use super::alloc::{vec, vec::Vec};
 
@@ -1418,5 +1421,217 @@ mod tests {
         let mut urn = Urn::try_from("urn:example:z").unwrap();
         *urn = UrnSlice::from_static("urn:example:w").unwrap();
         assert_eq!(urn.into_string(), "urn:example:w");
+    }
+
+    #[test]
+    fn debug_and_as_ref_bytes() {
+        let urn = UrnSlice::from_static("urn:example:a").unwrap();
+        assert_eq!(format!("{urn:?}"), "UrnSlice(urn:example:a)");
+        assert_eq!(AsRef::<[u8]>::as_ref(&urn), b"urn:example:a");
+        #[cfg(feature = "alloc")]
+        {
+            let owned = urn.into_owned();
+            assert_eq!(format!("{owned:?}"), "Urn(urn:example:a)");
+            assert_eq!(AsRef::<[u8]>::as_ref(&owned), b"urn:example:a");
+        }
+    }
+
+    /// Values just outside a component's grammar: a cut-off or non-hex `%` triplet, or (except in
+    /// the f-component) a leading `?` or `/`.
+    const NEAR_MISSES: [&str; 8] = ["a%", "a%4", "a%A", "%gA", "%Ag", "a%Ag", "?a", "/a"];
+
+    /// The builder and the setters validate a component on their own (without the parser), so
+    /// they must reject the same near misses the parser does.
+    #[test]
+    fn builder_and_setters_reject_near_misses() {
+        for bad in NEAR_MISSES {
+            let f_valid = bad.starts_with(['?', '/']);
+            let mut buf = String::from("urn:example:nss?+r?=q#f");
+            let mut urn = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+            assert_eq!(urn.set_nss(bad), Err(Error::InvalidNss), "{bad:?}");
+            assert_eq!(urn.set_r_component(Some(bad)), Err(Error::InvalidRComponent), "{bad:?}");
+            assert_eq!(urn.set_q_component(Some(bad)), Err(Error::InvalidQComponent), "{bad:?}");
+            if !f_valid {
+                assert_eq!(urn.set_f_component(Some(bad)), Err(Error::InvalidFComponent), "{bad:?}");
+            }
+            assert_eq!(urn.as_str(), "urn:example:nss?+r?=q#f");
+
+            #[cfg(feature = "alloc")]
+            {
+                assert_eq!(UrnBuilder::new("example", bad).build(), Err(Error::InvalidNss), "{bad:?}");
+                let builder = || UrnBuilder::new("example", "nss");
+                assert_eq!(builder().r_component(Some(bad)).build(), Err(Error::InvalidRComponent), "{bad:?}");
+                assert_eq!(builder().q_component(Some(bad)).build(), Err(Error::InvalidQComponent), "{bad:?}");
+                let f = builder().f_component(Some(bad)).build();
+                if f_valid {
+                    assert_eq!(f.map(Urn::into_string), Ok(format!("urn:example:nss#{bad}")));
+                } else {
+                    assert_eq!(f, Err(Error::InvalidFComponent), "{bad:?}");
+                }
+            }
+        }
+    }
+
+    /// `?=` inside an r-component would start the q-component, so the builder and the setter
+    /// reject it.
+    #[test]
+    fn r_component_rejects_q_prefix() {
+        let mut buf = String::from("urn:example:nss?+r");
+        let mut urn = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+        assert_eq!(urn.set_r_component(Some("a?=b")), Err(Error::InvalidRComponent));
+        assert_eq!(urn.as_str(), "urn:example:nss?+r");
+        #[cfg(feature = "alloc")]
+        assert_eq!(
+            UrnBuilder::new("example", "nss").r_component(Some("a?=b")).build(),
+            Err(Error::InvalidRComponent)
+        );
+    }
+
+    /// A setter uppercases the hex digits it is given, in place when the value is as long as the
+    /// one it replaces (without `alloc`, the only way a setter can work). Covers a triplet after
+    /// a plain character, and triplets where only the first or only the second digit is
+    /// lowercase.
+    #[test]
+    fn setters_normalize_hex_in_place() {
+        let mut buf = String::from("urn:example:abcdef?+abcdef?=abcdef#abcdef");
+        let mut urn = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+        urn.set_nss("%aB%cD").unwrap();
+        urn.set_r_component(Some("x%ab..")).unwrap();
+        urn.set_q_component(Some("%e9%F0")).unwrap();
+        urn.set_f_component(Some("%0a%Bc")).unwrap();
+        assert_eq!(urn.as_str(), "urn:example:%AB%CD?+x%AB..?=%E9%F0#%0A%BC");
+        assert_eq!(urn.nss(), "%AB%CD");
+        assert_eq!(urn.f_component(), Some("%0A%BC"));
+        // Written into the caller's buffer, not into a copy.
+        assert_eq!(buf, "urn:example:%AB%CD?+x%AB..?=%E9%F0#%0A%BC");
+    }
+
+    /// Setters that change the length, add or remove a component, or lowercase the NID.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn setters_resize_and_remove() {
+        let mut urn = UrnSlice::try_from("urn:ab:XYZXYZXYZ?+r?=q#f").unwrap();
+        urn.set_nid("CDE").unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ?+r?=q#f");
+        urn.set_q_component(None).unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ?+r#f");
+        urn.set_f_component(None).unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ?+r");
+        urn.set_r_component(None).unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ");
+        assert_eq!((urn.r_component(), urn.q_component(), urn.f_component()), (None, None, None));
+    }
+
+    /// The cross-type comparisons and the `str` views of both types.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn urn_and_slice_compare() {
+        let a = UrnSlice::try_from("urn:example:a").unwrap();
+        let b = UrnSlice::try_from("urn:example:b").unwrap();
+        let (owned_a, owned_b) = (Urn::from(&a), Urn::from(&b));
+        assert_eq!(a, owned_a);
+        assert_eq!(owned_a, a);
+        assert_ne!(a, owned_b);
+        assert_ne!(owned_b, a);
+        assert_eq!(owned_a.partial_cmp(&owned_b), Some(Ordering::Less));
+        assert_eq!(AsRef::<str>::as_ref(&a), "urn:example:a");
+        assert_eq!(AsRef::<str>::as_ref(&owned_b), "urn:example:b");
+    }
+
+    /// Exact encoder output: which characters each component leaves alone, where `?` and `/`
+    /// may appear, how multi-byte characters are encoded, and every hex digit.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn encode_exact_output() {
+        use crate::percent::{
+            encode_f_component,
+            encode_f_component_iter,
+            encode_nss,
+            encode_nss_iter,
+            encode_q_component,
+            encode_q_component_iter,
+            encode_r_component,
+            encode_r_component_iter,
+        };
+        type Encoders = (fn(&str) -> Result<String>, fn(&str) -> percent::EncodeIter<'_>);
+        let nss: Encoders = (encode_nss, encode_nss_iter);
+        let r: Encoders = (encode_r_component, encode_r_component_iter);
+        let q: Encoders = (encode_q_component, encode_q_component_iter);
+        let f: Encoders = (encode_f_component, encode_f_component_iter);
+        let plain = "AZaz09-._!$'()*+,;=:@";
+        let cases: &[(Encoders, &str, &str)] = &[
+            (nss, plain, plain),
+            (r, plain, plain),
+            (nss, "a&b~/?", "a%26b%7E%2F%3F"),
+            (r, "a&b~/?", "a&b%7E/?"),
+            (r, "?a?=b/", "%3Fa%3F=b/"),
+            (q, "?a?=b/", "%3Fa?=b/"),
+            (q, "/a", "%2Fa"),
+            (f, "?a?=b/", "?a?=b/"),
+            (f, "/a", "/a"),
+            (nss, "é@éa", "%C3%A9@%C3%A9a"),
+            (
+                nss,
+                "\n\u{4}\u{16}\u{1f} \"^\u{7f}ÿÝ€😀",
+                "%0A%04%16%1F%20%22%5E%7F%C3%BF%C3%9D%E2%82%AC%F0%9F%98%80",
+            ),
+        ];
+        for &((encode, encode_iter), input, want) in cases {
+            assert_eq!(encode(input).as_deref(), Ok(want), "{input:?}");
+            assert_eq!(encode_iter(input).collect::<Vec<u8>>(), want.as_bytes(), "{input:?}");
+        }
+    }
+
+    /// Exact decoder verdicts for `?` and `/` in each component, and hex digits in both cases.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_exact_output() {
+        use crate::percent::{
+            decode_f_component,
+            decode_f_component_iter,
+            decode_nss,
+            decode_nss_iter,
+            decode_q_component,
+            decode_q_component_iter,
+            decode_r_component,
+            decode_r_component_iter,
+        };
+        type Decoders = (fn(&str) -> Result<String>, fn(&str) -> percent::DecodeIter<'_>);
+        let nss: Decoders = (decode_nss, decode_nss_iter);
+        let r: Decoders = (decode_r_component, decode_r_component_iter);
+        let q: Decoders = (decode_q_component, decode_q_component_iter);
+        let f: Decoders = (decode_f_component, decode_f_component_iter);
+        let cases: &[(Decoders, &str, Option<&str>)] = &[
+            (nss, "a/b", Some("a/b")),
+            (nss, "/a", None),
+            (nss, "a?b", None),
+            (r, "a?b/c", Some("a?b/c")),
+            (r, "?a", None),
+            (r, "/a", None),
+            (r, "a?=b", None),
+            (q, "a?=b/c", Some("a?=b/c")),
+            (q, "?a", None),
+            (q, "/a", None),
+            (f, "?/a?=b", Some("?/a?=b")),
+        ];
+        for &((decode, decode_iter), input, want) in cases {
+            let got = decode(input);
+            assert_eq!(got.as_deref().ok(), want, "{input:?}");
+            let bytes = decode_iter(input).collect::<Result<Vec<u8>>>();
+            assert_eq!(bytes.ok().as_deref(), want.map(str::as_bytes), "{input:?} iter");
+        }
+        let bytes = decode_f_component_iter("%AF%af%4A%0f").collect::<Result<Vec<u8>>>();
+        assert_eq!(bytes, Ok(vec![0xAF, 0xAF, 0x4A, 0x0F]));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_rejects_non_hex_triplets() {
+        use crate::percent::{decode_f_component, decode_f_component_iter};
+        for bad in ["%gA", "%Ag", "a%gg", "a%4"] {
+            assert_eq!(decode_f_component(bad), Err(Error::InvalidFComponent), "{bad:?}");
+            assert!(decode_f_component_iter(bad).any(|b| b.is_err()), "{bad:?}");
+        }
+        assert_eq!(decode_f_component("%41%4a"), Ok(String::from("AJ")));
     }
 }

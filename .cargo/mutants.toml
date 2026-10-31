@@ -1,0 +1,61 @@
+# cargo-mutants configuration.
+#
+# Every mutant cargo-mutants generates must be caught by the tests, except the equivalent
+# mutants listed here: changes that can't alter any observable behaviour, so no test can catch
+# them. Each entry matches one mutant by its full name (as `cargo mutants --list` prints it,
+# with line and column) and gives the reason it is equivalent.
+#
+# `src/percent.rs` is declared twice in `src/lib.rs` (public with `alloc`, private without), and
+# cargo-mutants ignores `cfg`, so each of its mutants is listed and tested twice.
+#
+# When an edit moves one of these lines, its mutant shows up as missed again: check that the
+# reason still holds, then update the line and column here.
+
+exclude_re = [
+    # `UrnBuilder::build_inner`: `+` in the capacity hint passed to `String::with_capacity`. A
+    # wrong hint only changes how often the buffer reallocates. (The other `-` mutants there
+    # underflow and panic, so the tests catch them.)
+    "^src/lib\\.rs:91[4-9]:\\d+: replace \\+ with \\* in UrnBuilder<'a>::build_inner$",
+    "^src/lib\\.rs:915:13: replace \\+ with - in UrnBuilder<'a>::build_inner$",
+
+    # `TriCow::ensure_owned` promotes a borrowed buffer before percent-normalizing it, so the
+    # buffer is copied once instead of being checked again triplet by triplet.
+    # `make_uppercase` copies a borrowed buffer itself when the range changes.
+    "^src/cow\\.rs:86:9: replace TriCow<'_>::ensure_owned with \\(\\)$",
+
+    # `PLAIN_PARSE = 1 << 0`: `1 >> 0` is the same value.
+    "^src/tables\\.rs:16:38: replace << with >>$",
+
+    # `parse` and `validate`: `while i < bytes.len()` to `<=`. At `i == len` the plain-run scan
+    # returns `len`, and the loop breaks on the next line.
+    "^src/percent\\.rs:87:13: replace < with <= in parse$",
+    "^src/percent\\.rs:152:13: replace < with <= in validate$",
+
+    # `parse` and `normalize_range`: `make_uppercase(i + 1..i + 3)` to `i * 1..i + 3`. The range
+    # then also covers the `%`, which uppercasing leaves alone.
+    "^src/percent\\.rs:111:44: replace \\+ with \\* in parse$",
+    "^src/percent\\.rs:210:32: replace \\+ with \\* in normalize_range$",
+
+    # `normalize_range`: `while i + 2 < range.end` to `<=`. The range was validated, so no `%`
+    # sits two bytes before its end; the extra step only moves past a plain byte.
+    "^src/percent\\.rs:208:17: replace < with <= in normalize_range$",
+
+    # `DecodeIter::next`: `(hi << 4) | lo` to `^`. The two operands share no bits.
+    "^src/percent\\.rs:299:42: replace \\| with \\^ in <impl Iterator for DecodeIter<'_>>::next$",
+
+    # `encode`: the plain-run fast path. Skipping or always taking it (`run_end > i` to `==`,
+    # `<` or `>=`) leaves those bytes to the per-byte path, which emits the same output.
+    "^src/percent\\.rs:482:20: replace > with (==|<|>=) in encode$",
+
+    # `encode` and `EncodeIter::next`: `b < 0x80` to `<=`. `s` is valid UTF-8, so a byte 0x80
+    # (a continuation byte) never starts a character here; and if it did, both branches would
+    # emit `%80`.
+    "^src/percent\\.rs:492:14: replace < with <= in encode$",
+    "^src/percent\\.rs:595:14: replace < with <= in <impl Iterator for EncodeIter<'_>>::next$",
+
+    # `encode`: the loop that gathers a multi-byte character's continuation bytes into one push.
+    # Without it (`i < len` to `>`, or `& 0xC0` to `| 0xC0`), each continuation byte goes through
+    # the non-ASCII branch on its own and is encoded the same way.
+    "^src/percent\\.rs:526:21: replace < with > in encode$",
+    "^src/percent\\.rs:526:48: replace & with \\| in encode$",
+]
