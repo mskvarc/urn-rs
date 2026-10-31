@@ -731,18 +731,69 @@ pub fn encode_f_component(s: &str) -> Result<String> {
     Ok(encode(s, PctEncoded::FComponent))
 }
 
-#[cfg(all(test, feature = "alloc"))]
+#[cfg(test)]
 mod swar_tests {
     #[cfg(not(feature = "std"))]
-    use alloc::vec;
+    use alloc::vec::Vec;
 
-    use super::{BYTE_CLASS, PLAIN_PARSE, scan_plain_run};
+    use proptest::{collection::vec, prelude::*};
 
-    fn scan_plain_scalar(bytes: &[u8], mut i: usize) -> usize {
-        while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & PLAIN_PARSE != 0 {
+    #[cfg(feature = "alloc")]
+    use super::scan_enc_plain_run;
+    use super::{BYTE_CLASS, PLAIN_PARSE, scan_needs_hex_upper, scan_plain_run};
+    #[cfg(feature = "alloc")]
+    use crate::tables::{PLAIN_ENC_NSS, PLAIN_ENC_RQF};
+
+    /// Scalar reference for [`scan_plain_run`] and [`scan_enc_plain_run`]: one byte at a time.
+    fn scan_scalar(bytes: &[u8], mut i: usize, mask: u8) -> usize {
+        while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & mask != 0 {
             i += 1;
         }
         i
+    }
+
+    /// Scalar reference for [`scan_needs_hex_upper`]: any `%xx` triplet with a lowercase hex digit.
+    fn needs_hex_upper_scalar(bytes: &[u8], start: usize) -> bool {
+        bytes[start..]
+            .windows(3)
+            .any(|w| w[0] == b'%' && w[1].is_ascii_hexdigit() && w[2].is_ascii_hexdigit() && (w[1].is_ascii_lowercase() || w[2].is_ascii_lowercase()))
+    }
+
+    /// Bytes weighted towards the classes the scanners tell apart, with runs long enough to cross
+    /// several 8-byte batches.
+    fn bytes() -> impl Strategy<Value = Vec<u8>> {
+        let byte = prop_oneof![
+            4 => prop::sample::select(b"aAzZ09-._~!$&'()*+,;=:@".as_slice()),
+            2 => prop::sample::select(b"%%%abcdefABCDEF".as_slice()),
+            1 => prop::sample::select(b"?/# \"<>[]^`{|}\x00\x7f\x80\xc3\xff".as_slice()),
+            1 => any::<u8>(),
+        ];
+        vec(byte, 0..64)
+    }
+
+    proptest! {
+        #[test]
+        fn scan_plain_run_matches_scalar(bytes in bytes(), start in any::<prop::sample::Index>()) {
+            let start = start.index(bytes.len() + 1);
+            prop_assert_eq!(scan_plain_run(&bytes, start), scan_scalar(&bytes, start, PLAIN_PARSE));
+        }
+
+        #[test]
+        fn scan_needs_hex_upper_matches_scalar(bytes in bytes(), start in any::<prop::sample::Index>()) {
+            let start = start.index(bytes.len() + 1);
+            prop_assert_eq!(scan_needs_hex_upper(&bytes, start), needs_hex_upper_scalar(&bytes, start));
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    proptest! {
+        #[test]
+        fn scan_enc_plain_run_matches_scalar(bytes in bytes(), start in any::<prop::sample::Index>()) {
+            let start = start.index(bytes.len() + 1);
+            for mask in [PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE] {
+                prop_assert_eq!(scan_enc_plain_run(&bytes, start, mask), scan_scalar(&bytes, start, mask));
+            }
+        }
     }
 
     #[test]
@@ -757,7 +808,7 @@ mod swar_tests {
         for len in 0..=buf.len() {
             for start in 0..=len {
                 let a = scan_plain_run(&buf[..len], start);
-                let b = scan_plain_scalar(&buf[..len], start);
+                let b = scan_scalar(&buf[..len], start, PLAIN_PARSE);
                 assert_eq!(a, b, "mismatch at len={len} start={start}");
             }
         }
@@ -765,11 +816,11 @@ mod swar_tests {
 
     #[test]
     fn swar_boundary_cases() {
-        let all_plain = vec![b'A'; 33];
+        let all_plain = [b'A'; 33];
         assert_eq!(scan_plain_run(&all_plain, 0), 33);
         // Non-plain at every position across the 8-byte window boundary.
         for pos in 0..20 {
-            let mut v = vec![b'A'; 20];
+            let mut v = [b'A'; 20];
             v[pos] = b'#';
             assert_eq!(scan_plain_run(&v, 0), pos);
         }

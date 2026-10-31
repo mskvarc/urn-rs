@@ -184,3 +184,21 @@ impl TriCow<'_> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::{collection::vec, prelude::*};
+
+    use super::has_ascii_upper;
+
+    proptest! {
+        /// The 8-byte SWAR batches agree with a byte-at-a-time check, including for bytes with the
+        /// high bit set whose low 7 bits fall in `A..=Z`.
+        #[test]
+        fn has_ascii_upper_matches_scalar(
+            bytes in vec(prop_oneof![prop::sample::select(b"@AZ[`az{\xc1\xda\x80\xff".as_slice()), any::<u8>()], 0..40),
+        ) {
+            prop_assert_eq!(has_ascii_upper(&bytes), bytes.iter().any(u8::is_ascii_uppercase));
+        }
+    }
+}
