@@ -1,228 +1,20 @@
 //! This module contains functions for percent-encoding and decoding various components of a URN.
 
-#[cfg(feature = "alloc")]
-use crate::Error;
-#[cfg(feature = "alloc")]
-use crate::tables::{HEX_VAL, PLAIN_ENC_NSS, PLAIN_ENC_RQF};
 use crate::{
+    Error,
     Result,
-    TriCow,
-    tables::{BYTE_CLASS, HEX, PLAIN_PARSE},
+    component::{PctEncoded, scan_run},
+    tables::{BYTE_CLASS, HEX_VAL, PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE},
 };
-#[cfg(all(feature = "alloc", not(feature = "std")))]
+#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
-use core::ops::Range;
-#[cfg(feature = "alloc")]
 use core::str::from_utf8_unchecked;
-
-/// Different components are percent-encoded differently...
-#[derive(Copy, Clone)]
-enum PctEncoded {
-    Nss,
-    RComponent,
-    QComponent,
-    FComponent,
-}
-
-/// Scan a contiguous run of plain-pchar bytes starting at `i`, advancing 8 at a
-/// time via parallel table lookups. Returns the first index that is either out
-/// of bounds or a non-plain byte. The bulk path keeps 8 independent loads in
-/// flight so modern cores can saturate their load ports even though we don't
-/// use explicit SIMD intrinsics.
-#[inline]
-fn scan_plain_run(bytes: &[u8], mut i: usize) -> usize {
-    while i + 8 <= bytes.len() {
-        // 8-byte copy lowers to a single unaligned load.
-        let mut c = [0u8; 8];
-        c.copy_from_slice(&bytes[i..i + 8]);
-        let mut mask: u32 = 0;
-        // Unrolled so each table lookup is independent.
-        for k in 0..8 {
-            if BYTE_CLASS[c[k] as usize] & PLAIN_PARSE == 0 {
-                mask |= 1 << k;
-            }
-        }
-        if mask == 0 {
-            i += 8;
-        } else {
-            return i + mask.trailing_zeros() as usize;
-        }
-    }
-    while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & PLAIN_PARSE != 0 {
-        i += 1;
-    }
-    i
-}
-
-/// Scan `bytes[start..]` for any well-formed `%xx` triplet with a lowercase hex
-/// digit — the only shape that requires uppercase normalization during parse.
-fn scan_needs_hex_upper(bytes: &[u8], start: usize) -> bool {
-    let mut i = start;
-    while i + 2 < bytes.len() {
-        if bytes[i] == b'%' && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
-            if bytes[i + 1].is_ascii_lowercase() || bytes[i + 2].is_ascii_lowercase() {
-                return true;
-            }
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    false
-}
-
-/// Parse and normalize percent-encoded string. Returns the end.
-fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
-    // One-shot: detect any triplet with lowercase hex so we can (a) skip
-    // `make_uppercase` calls entirely when not needed, and (b) promote Borrowed
-    // -> Owned up front rather than incur the per-triplet scan inside
-    // `make_uppercase`'s Borrowed arm.
-    let needs_upper = scan_needs_hex_upper(s.as_bytes(), start);
-    #[cfg(feature = "alloc")]
-    if needs_upper && matches!(s, TriCow::Borrowed(_)) {
-        s.ensure_owned();
-    }
-    let mut bytes = s.as_bytes();
-    let mut i = start;
-    while i < bytes.len() {
-        // Bulk-skip plain pchar runs; drops to scalar for specials (%, ?, /) and
-        // for bytes outside the pchar set.
-        i = scan_plain_run(bytes, i);
-        if i >= bytes.len() {
-            break;
-        }
-        let ch = bytes[i];
-        match ch {
-            b'?' => match kind {
-                PctEncoded::FComponent => {}
-                PctEncoded::QComponent if i != start => {}
-                PctEncoded::RComponent if i != start && bytes.get(i + 1) != Some(&b'=') => {}
-                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return Ok(i),
-            },
-            b'/' => match kind {
-                PctEncoded::FComponent => {}
-                _ if i != start => {}
-                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return Ok(i),
-            },
-            b'%' => {
-                if i + 2 < bytes.len() && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
-                    if needs_upper {
-                        // s is Owned/MutBorrowed; uppercase in place, no promotion.
-                        s.make_uppercase(i + 1..i + 3)?;
-                        bytes = s.as_bytes();
-                    }
-                    i += 3;
-                    continue;
-                }
-                return Ok(i);
-            }
-            _ => return Ok(i),
-        }
-        i += 1;
-    }
-    // this was the last component!
-    Ok(s.len())
-}
-
-/// Returns the NSS end
-pub(crate) fn parse_nss(s: &mut TriCow, start: usize) -> Result<usize> {
-    parse(s, start, PctEncoded::Nss)
-}
-/// Returns the r-component end
-pub(crate) fn parse_r_component(s: &mut TriCow, start: usize) -> Result<usize> {
-    parse(s, start, PctEncoded::RComponent)
-}
-/// Returns the q-component end
-pub(crate) fn parse_q_component(s: &mut TriCow, start: usize) -> Result<usize> {
-    parse(s, start, PctEncoded::QComponent)
-}
-/// Returns the f-component end
-pub(crate) fn parse_f_component(s: &mut TriCow, start: usize) -> Result<usize> {
-    parse(s, start, PctEncoded::FComponent)
-}
-
-/// Validate a percent-encoded component without mutating. Mirrors `parse()` logic
-/// byte-for-byte, but records whether any `%xx` triplet has an ASCII-lowercase hex
-/// digit (meaning the caller must normalize) rather than uppercasing in place.
-/// Returns `(end, needs_norm)`.
-fn validate(s: &str, start: usize, kind: PctEncoded) -> (usize, bool) {
-    let bytes = s.as_bytes();
-    let mut i = start;
-    let mut needs_norm = false;
-    while i < bytes.len() {
-        i = scan_plain_run(bytes, i);
-        if i >= bytes.len() {
-            break;
-        }
-        let ch = bytes[i];
-        match ch {
-            b'?' => match kind {
-                PctEncoded::FComponent => {}
-                PctEncoded::QComponent if i != start => {}
-                PctEncoded::RComponent if i != start && bytes.get(i + 1) != Some(&b'=') => {}
-                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return (i, needs_norm),
-            },
-            b'/' => match kind {
-                PctEncoded::FComponent => {}
-                _ if i != start => {}
-                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return (i, needs_norm),
-            },
-            b'%' => {
-                if i + 2 < bytes.len() && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
-                    if bytes[i + 1].is_ascii_lowercase() || bytes[i + 2].is_ascii_lowercase() {
-                        needs_norm = true;
-                    }
-                    i += 3;
-                    continue;
-                }
-                return (i, needs_norm);
-            }
-            _ => return (i, needs_norm),
-        }
-        i += 1;
-    }
-    (bytes.len(), needs_norm)
-}
-
-#[inline]
-pub(crate) fn validate_nss(s: &str) -> (usize, bool) {
-    validate(s, 0, PctEncoded::Nss)
-}
-#[inline]
-pub(crate) fn validate_r_component(s: &str) -> (usize, bool) {
-    validate(s, 0, PctEncoded::RComponent)
-}
-#[inline]
-pub(crate) fn validate_q_component(s: &str) -> (usize, bool) {
-    validate(s, 0, PctEncoded::QComponent)
-}
-#[inline]
-pub(crate) fn validate_f_component(s: &str) -> (usize, bool) {
-    validate(s, 0, PctEncoded::FComponent)
-}
-
-/// Uppercase the hex digits of every `%xx` triplet in `range`. Caller must have
-/// validated the range — malformed `%` tails are ignored rather than rejected.
-pub(crate) fn normalize_range(s: &mut TriCow, range: Range<usize>) -> Result<()> {
-    let mut i = range.start;
-    while i + 2 < range.end {
-        if s.as_bytes()[i] == b'%' {
-            s.make_uppercase(i + 1..i + 3)?;
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    Ok(())
-}
 
 /// Iterator that percent-decodes a component byte-by-byte without allocating.
 ///
 /// Yields `Ok(byte)` for each decoded byte. Yields `Err(component_error)` and ends
 /// iteration on the first validation failure. Callers that want the decoded bytes as
 /// a `String` must validate UTF-8 themselves (e.g. via `String::from_utf8`).
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub struct DecodeIter<'a> {
     bytes: &'a [u8],
     i: usize,
@@ -231,7 +23,6 @@ pub struct DecodeIter<'a> {
     done: bool,
 }
 
-#[cfg(feature = "alloc")]
 impl<'a> DecodeIter<'a> {
     const fn new(s: &'a str, kind: PctEncoded, err: Error) -> Self {
         Self {
@@ -244,7 +35,6 @@ impl<'a> DecodeIter<'a> {
     }
 }
 
-#[cfg(feature = "alloc")]
 impl Iterator for DecodeIter<'_> {
     type Item = Result<u8>;
     fn next(&mut self) -> Option<Result<u8>> {
@@ -305,7 +95,6 @@ impl Iterator for DecodeIter<'_> {
     }
 }
 
-#[cfg(feature = "alloc")]
 fn decode(s: &str, kind: PctEncoded) -> Option<String> {
     let mut ret = Vec::with_capacity(s.len());
     // Error value unused: we only surface success/failure via Option here.
@@ -330,7 +119,6 @@ fn decode(s: &str, kind: PctEncoded) -> Option<String> {
 ///
 /// # Errors
 /// Returns [`Error::InvalidNss`] in case of a validation failure.
-#[cfg(feature = "alloc")]
 pub fn decode_nss(s: &str) -> Result<String> {
     decode(s, PctEncoded::Nss).ok_or(Error::InvalidNss)
 }
@@ -349,7 +137,6 @@ pub fn decode_nss(s: &str) -> Result<String> {
 ///
 /// # Errors
 /// Returns [`Error::InvalidRComponent`] in case of a validation failure.
-#[cfg(feature = "alloc")]
 pub fn decode_r_component(s: &str) -> Result<String> {
     decode(s, PctEncoded::RComponent).ok_or(Error::InvalidRComponent)
 }
@@ -368,7 +155,6 @@ pub fn decode_r_component(s: &str) -> Result<String> {
 ///
 /// # Errors
 /// Returns [`Error::InvalidQComponent`] in case of a validation failure.
-#[cfg(feature = "alloc")]
 pub fn decode_q_component(s: &str) -> Result<String> {
     decode(s, PctEncoded::QComponent).ok_or(Error::InvalidQComponent)
 }
@@ -387,7 +173,6 @@ pub fn decode_q_component(s: &str) -> Result<String> {
 ///
 /// # Errors
 /// Returns [`Error::InvalidFComponent`] in case of a validation failure.
-#[cfg(feature = "alloc")]
 pub fn decode_f_component(s: &str) -> Result<String> {
     decode(s, PctEncoded::FComponent).ok_or(Error::InvalidFComponent)
 }
@@ -404,34 +189,29 @@ pub fn decode_f_component(s: &str) -> Result<String> {
 /// assert_eq!(bytes?, b"string with spaces");
 /// # Ok(()) } test_main().unwrap();
 /// ```
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn decode_nss_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::Nss, Error::InvalidNss)
 }
 
 /// Percent-decode an r-component byte-by-byte without allocating. See [`decode_nss_iter`].
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn decode_r_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::RComponent, Error::InvalidRComponent)
 }
 
 /// Percent-decode a q-component byte-by-byte without allocating. See [`decode_nss_iter`].
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn decode_q_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::QComponent, Error::InvalidQComponent)
 }
 
 /// Percent-decode an f-component byte-by-byte without allocating. See [`decode_nss_iter`].
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn decode_f_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::FComponent, Error::InvalidFComponent)
 }
 
-#[cfg(feature = "alloc")]
 const fn to_hex(n: u8) -> [u8; 2] {
     let a = (n & 0xF0) >> 4;
     let b = n & 0xF;
@@ -440,35 +220,6 @@ const fn to_hex(n: u8) -> [u8; 2] {
     [a, b]
 }
 
-/// Scan a contiguous run of bytes that are unconditionally plain for the encoder
-/// under `plain_mask`. Mirrors [`scan_plain_run`] but with a dynamic mask. The
-/// `PLAIN_ENC_NSS` / `PLAIN_ENC_RQF` bits are only set for ASCII bytes, so a run
-/// returned here is guaranteed to be valid UTF-8.
-#[cfg(feature = "alloc")]
-#[inline]
-fn scan_enc_plain_run(bytes: &[u8], mut i: usize, plain_mask: u8) -> usize {
-    while i + 8 <= bytes.len() {
-        let mut c = [0u8; 8];
-        c.copy_from_slice(&bytes[i..i + 8]);
-        let mut mask: u32 = 0;
-        for k in 0..8 {
-            if BYTE_CLASS[c[k] as usize] & plain_mask == 0 {
-                mask |= 1 << k;
-            }
-        }
-        if mask == 0 {
-            i += 8;
-        } else {
-            return i + mask.trailing_zeros() as usize;
-        }
-    }
-    while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & plain_mask != 0 {
-        i += 1;
-    }
-    i
-}
-
-#[cfg(feature = "alloc")]
 fn encode(s: &str, kind: PctEncoded) -> String {
     let bytes = s.as_bytes();
     let mut ret = String::with_capacity(bytes.len());
@@ -478,7 +229,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
     };
     let mut i = 0;
     while i < bytes.len() {
-        let run_end = scan_enc_plain_run(bytes, i, plain_mask);
+        let run_end = scan_run(bytes, i, plain_mask);
         if run_end > i {
             // SAFETY: `plain_mask` bits in `BYTE_CLASS` are only set for ASCII
             // bytes (< 0x80), so the run is valid UTF-8.
@@ -550,8 +301,6 @@ fn encode(s: &str, kind: PctEncoded) -> String {
 /// (per RFC 8141) pass through as-is; every other byte is replaced by its
 /// `%XX` triplet (three bytes). Multi-byte UTF-8 scalars are encoded by
 /// percent-encoding each of their bytes in turn.
-#[cfg(feature = "alloc")]
-#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub struct EncodeIter<'a> {
     bytes: &'a [u8],
     i: usize,
@@ -561,7 +310,6 @@ pub struct EncodeIter<'a> {
     pending_pos: u8,
 }
 
-#[cfg(feature = "alloc")]
 impl<'a> EncodeIter<'a> {
     const fn new(s: &'a str, kind: PctEncoded) -> Self {
         Self {
@@ -575,7 +323,6 @@ impl<'a> EncodeIter<'a> {
     }
 }
 
-#[cfg(feature = "alloc")]
 impl Iterator for EncodeIter<'_> {
     type Item = u8;
     fn next(&mut self) -> Option<u8> {
@@ -625,28 +372,24 @@ impl Iterator for EncodeIter<'_> {
 }
 
 /// Percent-encode an NSS byte-by-byte without allocating. See [`encode_nss`].
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn encode_nss_iter(s: &str) -> EncodeIter<'_> {
     EncodeIter::new(s, PctEncoded::Nss)
 }
 
 /// Percent-encode an r-component byte-by-byte without allocating. See [`encode_r_component`].
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn encode_r_component_iter(s: &str) -> EncodeIter<'_> {
     EncodeIter::new(s, PctEncoded::RComponent)
 }
 
 /// Percent-encode a q-component byte-by-byte without allocating. See [`encode_q_component`].
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn encode_q_component_iter(s: &str) -> EncodeIter<'_> {
     EncodeIter::new(s, PctEncoded::QComponent)
 }
 
 /// Percent-encode an f-component byte-by-byte without allocating. See [`encode_f_component`].
-#[cfg(feature = "alloc")]
 #[must_use]
 pub const fn encode_f_component_iter(s: &str) -> EncodeIter<'_> {
     EncodeIter::new(s, PctEncoded::FComponent)
@@ -667,7 +410,6 @@ pub const fn encode_f_component_iter(s: &str) -> EncodeIter<'_> {
 ///
 /// # Errors
 /// Returns [`Error::InvalidNss`] when attempting to encode an empty string.
-#[cfg(feature = "alloc")]
 pub fn encode_nss(s: &str) -> Result<String> {
     if s.is_empty() {
         return Err(Error::InvalidNss);
@@ -690,7 +432,6 @@ pub fn encode_nss(s: &str) -> Result<String> {
 ///
 /// # Errors
 /// Returns [`Error::InvalidRComponent`] when attempting to encode an empty string.
-#[cfg(feature = "alloc")]
 pub fn encode_r_component(s: &str) -> Result<String> {
     if s.is_empty() {
         return Err(Error::InvalidRComponent);
@@ -713,7 +454,6 @@ pub fn encode_r_component(s: &str) -> Result<String> {
 ///
 /// # Errors
 /// Returns [`Error::InvalidQComponent`] when attempting to encode an empty string.
-#[cfg(feature = "alloc")]
 pub fn encode_q_component(s: &str) -> Result<String> {
     if s.is_empty() {
         return Err(Error::InvalidQComponent);
@@ -737,104 +477,7 @@ pub fn encode_q_component(s: &str) -> Result<String> {
 /// # Errors
 /// None, this function returns a `Result` for API consistency. If the URN standard gets extended
 /// in the future, this may return `Error::InvalidFComponent`.
-#[cfg(feature = "alloc")]
 pub fn encode_f_component(s: &str) -> Result<String> {
     // fragment is allowed to be empty
     Ok(encode(s, PctEncoded::FComponent))
-}
-
-#[cfg(test)]
-mod swar_tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::vec::Vec;
-
-    use proptest::{collection::vec, prelude::*};
-
-    #[cfg(feature = "alloc")]
-    use super::scan_enc_plain_run;
-    use super::{BYTE_CLASS, PLAIN_PARSE, scan_needs_hex_upper, scan_plain_run};
-    #[cfg(feature = "alloc")]
-    use crate::tables::{PLAIN_ENC_NSS, PLAIN_ENC_RQF};
-
-    /// Scalar reference for [`scan_plain_run`] and [`scan_enc_plain_run`]: one byte at a time.
-    fn scan_scalar(bytes: &[u8], mut i: usize, mask: u8) -> usize {
-        while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & mask != 0 {
-            i += 1;
-        }
-        i
-    }
-
-    /// Scalar reference for [`scan_needs_hex_upper`]: any `%xx` triplet with a lowercase hex digit.
-    fn needs_hex_upper_scalar(bytes: &[u8], start: usize) -> bool {
-        bytes[start..]
-            .windows(3)
-            .any(|w| w[0] == b'%' && w[1].is_ascii_hexdigit() && w[2].is_ascii_hexdigit() && (w[1].is_ascii_lowercase() || w[2].is_ascii_lowercase()))
-    }
-
-    /// Bytes weighted towards the classes the scanners tell apart, with runs long enough to cross
-    /// several 8-byte batches.
-    fn bytes() -> impl Strategy<Value = Vec<u8>> {
-        let byte = prop_oneof![
-            4 => prop::sample::select(b"aAzZ09-._~!$&'()*+,;=:@".as_slice()),
-            2 => prop::sample::select(b"%%%abcdefABCDEF".as_slice()),
-            1 => prop::sample::select(b"?/# \"<>[]^`{|}\x00\x7f\x80\xc3\xff".as_slice()),
-            1 => any::<u8>(),
-        ];
-        vec(byte, 0..64)
-    }
-
-    proptest! {
-        #[test]
-        fn scan_plain_run_matches_scalar(bytes in bytes(), start in any::<prop::sample::Index>()) {
-            let start = start.index(bytes.len() + 1);
-            prop_assert_eq!(scan_plain_run(&bytes, start), scan_scalar(&bytes, start, PLAIN_PARSE));
-        }
-
-        #[test]
-        fn scan_needs_hex_upper_matches_scalar(bytes in bytes(), start in any::<prop::sample::Index>()) {
-            let start = start.index(bytes.len() + 1);
-            prop_assert_eq!(scan_needs_hex_upper(&bytes, start), needs_hex_upper_scalar(&bytes, start));
-        }
-    }
-
-    #[cfg(feature = "alloc")]
-    proptest! {
-        #[test]
-        fn scan_enc_plain_run_matches_scalar(bytes in bytes(), start in any::<prop::sample::Index>()) {
-            let start = start.index(bytes.len() + 1);
-            for mask in [PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE] {
-                prop_assert_eq!(scan_enc_plain_run(&bytes, start, mask), scan_scalar(&bytes, start, mask));
-            }
-        }
-    }
-
-    #[test]
-    fn swar_matches_scalar_all_prefixes() {
-        // Deterministic pseudo-random buffer mixing plain and non-plain bytes.
-        let mut buf = [0u8; 1024];
-        let mut x: u32 = 0x1234_5678;
-        for b in &mut buf {
-            x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            *b = x.to_le_bytes()[2];
-        }
-        for len in 0..=buf.len() {
-            for start in 0..=len {
-                let a = scan_plain_run(&buf[..len], start);
-                let b = scan_scalar(&buf[..len], start, PLAIN_PARSE);
-                assert_eq!(a, b, "mismatch at len={len} start={start}");
-            }
-        }
-    }
-
-    #[test]
-    fn swar_boundary_cases() {
-        let all_plain = [b'A'; 33];
-        assert_eq!(scan_plain_run(&all_plain, 0), 33);
-        // Non-plain at every position across the 8-byte window boundary.
-        for pos in 0..20 {
-            let mut v = [b'A'; 20];
-            v[pos] = b'#';
-            assert_eq!(scan_plain_run(&v, 0), pos);
-        }
-    }
 }

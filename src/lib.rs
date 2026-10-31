@@ -54,12 +54,11 @@ mod owned;
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use owned::Urn;
 
+mod component;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub mod percent;
-#[cfg(not(feature = "alloc"))]
-mod percent;
-use percent::{
+use component::{
     normalize_range,
     parse_f_component,
     parse_nss,
