@@ -2,7 +2,8 @@
 //!
 //! Features
 //! - `serde` - [Serde](https://serde.rs) support
-//! - `std` (enabled by default) - [`std::error::Error`] integration
+//! - `std` (enabled by default) - links the standard library; implies `alloc`. [`Error`]
+//!   implements [`core::error::Error`] in every build, `no_std` included.
 //! - `alloc` (enabled by default) - [alloc](https://doc.rust-lang.org/alloc/index.html) support
 //!   (you probably want to keep this enabled)
 //!
@@ -249,12 +250,15 @@ type Result<T, E = Error> = result::Result<T, E>;
 ///
 /// [`Borrow`]: core::borrow::Borrow
 ///
-/// Unlike [`Urn`]:
-/// - When created via `TryFrom<&str>`, allocations only occur if the URN isn't normalized
-///   (uppercase percent-encoded characters and lowercase `urn` scheme and NID)
-/// - When created via `TryFrom<&mut str>`, no allocations are done at all.
-///
-/// `FromStr` is always required to allocate, so you should use `TryFrom` when possible.
+#[cfg_attr(
+    feature = "alloc",
+    doc = "Unlike [`Urn`]:
+- When created via `TryFrom<&str>`, allocations only occur if the URN isn't normalized
+  (uppercase percent-encoded characters and lowercase `urn` scheme and NID)
+- When created via `TryFrom<&mut str>`, no allocations are done at all.
+
+`FromStr` is always required to allocate, so you should use `TryFrom` when possible."
+)]
 ///
 /// # Cloning
 ///
@@ -434,8 +438,7 @@ impl UrnSlice<'_> {
     ///
     /// For example, in `urn:ietf:rfc:2648`, `rfs:2648` is the NSS.
     ///
-    /// # See also
-    /// - [`percent::decode_nss`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_nss`]")]
     #[must_use]
     #[inline]
     pub fn nss(&self) -> &str {
@@ -447,8 +450,7 @@ impl UrnSlice<'_> {
     /// # Errors
     /// Returns [`Error::InvalidNss`] in case of a validation failure.
     ///
-    /// # See also
-    /// - [`percent::encode_nss`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_nss`]")]
     pub fn set_nss(&mut self, nss: &str) -> Result<()> {
         let (end, needs_norm) = validate_nss(nss);
         if nss.is_empty() || end != nss.len() {
@@ -473,8 +475,7 @@ impl UrnSlice<'_> {
     /// Should not be used for equivalence checks. As of the time of writing this, exact semantics
     /// aren't in the RFC.
     ///
-    /// # See also
-    /// - [`percent::decode_r_component`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_r_component`]")]
     #[must_use]
     #[inline]
     pub fn r_component(&self) -> Option<&str> {
@@ -487,8 +488,7 @@ impl UrnSlice<'_> {
     /// # Errors
     /// Returns [`Error::InvalidRComponent`] in case of a validation failure.
     ///
-    /// # See also
-    /// - [`percent::encode_r_component`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_r_component`]")]
     pub fn set_r_component(&mut self, r_component: Option<&str>) -> Result<()> {
         if let Some(rc) = r_component {
             let (end, needs_norm) = validate_r_component(rc);
@@ -525,8 +525,7 @@ impl UrnSlice<'_> {
     ///
     /// Should not be used for equivalence checks.
     ///
-    /// # See also
-    /// - [`percent::decode_q_component`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_component`]")]
     #[must_use]
     #[inline]
     pub fn q_component(&self) -> Option<&str> {
@@ -539,8 +538,7 @@ impl UrnSlice<'_> {
     /// # Errors
     /// Returns [`Error::InvalidQComponent`] in case of a validation failure.
     ///
-    /// # See also
-    /// - [`percent::encode_q_component`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_q_component`]")]
     pub fn set_q_component(&mut self, q_component: Option<&str>) -> Result<()> {
         if let Some(qc) = q_component {
             let (end, needs_norm) = validate_q_component(qc);
@@ -576,8 +574,7 @@ impl UrnSlice<'_> {
     ///
     /// Should not be used for equivalence checks.
     ///
-    /// # See also
-    /// - [`percent::decode_f_component`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_f_component`]")]
     #[must_use]
     #[inline]
     pub fn f_component(&self) -> Option<&str> {
@@ -590,8 +587,7 @@ impl UrnSlice<'_> {
     /// # Errors
     /// Returns [`Error::InvalidFComponent`] in case of a validation failure.
     ///
-    /// # See also
-    /// - [`percent::encode_f_component`]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_f_component`]")]
     pub fn set_f_component(&mut self, f_component: Option<&str>) -> Result<()> {
         if let Some(fc) = f_component {
             let (end, needs_norm) = validate_f_component(fc);

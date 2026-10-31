@@ -43,7 +43,7 @@ cargo add urn-rs
 
 | Flag       | Default | Enables                                                                    |
 | ---------- | :-----: | -------------------------------------------------------------------------- |
-| `std`      |   yes   | `alloc` + `std::error::Error` impls                                        |
+| `std`      |   yes   | `alloc` + links the standard library                                       |
 | `alloc`    |         | Owned `Urn`, `UrnBuilder`, `String`-returning APIs                         |
 | `serde`    |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice`                       |
 | `exact-eq` |         | Include r-/q-/f-components in `PartialEq` / `Ord` / `Hash` (normalized)    |
