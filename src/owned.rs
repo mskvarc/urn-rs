@@ -50,18 +50,31 @@ impl BorrowMut<UrnSlice<'static>> for Urn {
 
 impl<'a> From<UrnSlice<'a>> for Urn {
     fn from(value: UrnSlice<'a>) -> Self {
-        use crate::TriCow;
-        Self(UrnSlice {
-            urn: match value.urn {
-                TriCow::Owned(s) => TriCow::Owned(s),
-                TriCow::Borrowed(s) => TriCow::Owned(s.to_owned()),
-                TriCow::MutBorrowed(s) => TriCow::Owned(s.to_owned()),
-            },
-            nid_len: value.nid_len,
-            nss_len: value.nss_len,
-            q_component_len: value.q_component_len,
-            r_component_len: value.r_component_len,
-        })
+        value.into_owned()
+    }
+}
+
+impl Urn {
+    /// Consume the URN and return its normalized string without copying it.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), urn_rs::Error> {
+    /// use urn_rs::Urn;
+    ///
+    /// let urn = Urn::try_from("URN:Example:foo")?;
+    /// assert_eq!(urn.into_string(), "urn:example:foo");
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0.urn.into_string()
+    }
+}
+
+/// Same as [`Urn::into_string`].
+impl From<Urn> for String {
+    fn from(value: Urn) -> Self {
+        value.into_string()
     }
 }
 

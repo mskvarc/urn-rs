@@ -67,6 +67,16 @@ fn has_ascii_upper(bytes: &[u8]) -> bool {
 }
 
 impl TriCow<'_> {
+    /// Take the buffer as a `String`, moving it when already owned and copying otherwise.
+    #[cfg(feature = "alloc")]
+    pub fn into_string(self) -> String {
+        match self {
+            TriCow::Owned(s) => s,
+            TriCow::Borrowed(s) => s.to_owned(),
+            TriCow::MutBorrowed(s) => s.to_owned(),
+        }
+    }
+
     /// Promote `Borrowed` to `Owned`; no-op for `Owned` / `MutBorrowed`. Requires
     /// `alloc` since `Borrowed` can only be upgraded by copying into a `String`.
     #[cfg(feature = "alloc")]

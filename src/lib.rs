@@ -334,16 +334,30 @@ impl<'a> UrnSlice<'a> {
             .end
     }
 
-    /// Consume self, returning an owned `Urn`. Moves buffer when already owned.
+    /// Consume the slice and return an owned [`Urn`] that no longer borrows the input.
+    ///
+    /// The buffer is moved when the slice already owns it, for example after `TryFrom<String>`
+    /// or a setter that had to reallocate. Otherwise the string is copied once.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), urn_rs::Error> {
+    /// use urn_rs::{Urn, UrnSlice};
+    ///
+    /// fn parse_static(input: &str) -> Result<Urn, urn_rs::Error> {
+    ///     Ok(UrnSlice::try_from(input)?.into_owned())
+    /// }
+    ///
+    /// let urn = parse_static(&String::from("urn:example:foo"))?;
+    /// assert_eq!(urn.as_str(), "urn:example:foo");
+    /// # Ok(()) }
+    /// ```
     #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     #[inline]
-    pub(crate) fn into_owned(self) -> Urn {
+    #[must_use]
+    pub fn into_owned(self) -> Urn {
         Urn(UrnSlice {
-            urn: match self.urn {
-                TriCow::Owned(s) => TriCow::Owned(s),
-                TriCow::Borrowed(s) => TriCow::Owned(s.to_owned()),
-                TriCow::MutBorrowed(s) => TriCow::Owned(s.to_owned()),
-            },
+            urn: TriCow::Owned(self.urn.into_string()),
             nid_len: self.nid_len,
             nss_len: self.nss_len,
             r_component_len: self.r_component_len,
@@ -1295,5 +1309,37 @@ mod tests {
         let cloned = owned.clone();
         assert_ne!(cloned.as_str().as_ptr(), owned.as_str().as_ptr());
         assert_eq!(cloned.as_str(), owned.as_str());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn into_owned_and_into_string() {
+        // Borrowed slice outlives its input once converted.
+        let urn = {
+            let input = String::from("URN:Example:a?+r?=q#f");
+            UrnSlice::try_from(input.as_str()).unwrap().into_owned()
+        };
+        assert_eq!(urn.as_str(), "urn:example:a?+r?=q#f");
+        assert_eq!(urn.r_component(), Some("r"));
+        assert_eq!(urn.q_component(), Some("q"));
+        assert_eq!(urn.f_component(), Some("f"));
+
+        // Owned slice: into_owned and into_string move the buffer instead of copying.
+        let slice = UrnSlice::try_from(String::from("urn:example:x")).unwrap();
+        let ptr = slice.as_str().as_ptr();
+        let urn = slice.into_owned();
+        assert_eq!(urn.as_str().as_ptr(), ptr);
+        let s = urn.into_string();
+        assert_eq!(s.as_ptr(), ptr);
+        assert_eq!(s, "urn:example:x");
+
+        // From<Urn> for String.
+        let s: String = Urn::try_from("urn:example:y").unwrap().into();
+        assert_eq!(s, "urn:example:y");
+
+        // A Urn holding a borrowed 'static slice (assigned through DerefMut) still converts.
+        let mut urn = Urn::try_from("urn:example:z").unwrap();
+        *urn = UrnSlice::from_static("urn:example:w").unwrap();
+        assert_eq!(urn.into_string(), "urn:example:w");
     }
 }
