@@ -17,25 +17,35 @@
 //! let _ = urn_rs_static::urn!("urn:x:nss"); // NID too short
 //! ```
 //!
-//! The calling crate must depend on `urn-rs` directly, since the expansion refers to it.
-//! Renaming it in `Cargo.toml` is supported.
+//! Use it through `urn-rs` with the `static` feature, as `urn_rs::urn!`. Depending on this
+//! crate directly also works: the expansion then needs `urn-rs` or `urn-rs-core` as a direct
+//! dependency of the calling crate, renamed or not.
 
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Literal, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{Error as SynError, LitStr, parse_macro_input};
-use urn_rs::UrnSlice;
+use urn_rs_core::UrnSlice;
 
-/// Path to `urn-rs` as the calling crate names it.
-fn urn_rs_path() -> TokenStream2 {
+/// Path to the crate that defines `UrnSlice`, as the calling crate names it: `urn-rs`'s hidden
+/// re-export of the core crate, or else `urn-rs-core` itself.
+fn core_path() -> TokenStream2 {
+    let ident = |name: &str| {
+        let ident = format_ident!("{name}");
+        quote!(::#ident)
+    };
     match crate_name("urn-rs") {
         Ok(FoundCrate::Name(name)) => {
-            let ident = format_ident!("{name}");
-            quote!(::#ident)
+            let krate = ident(&name);
+            quote!(#krate::__private)
         }
         // `Itself` means urn-rs's own tests or examples, which reach the library as `urn_rs`.
-        Ok(FoundCrate::Itself) | Err(_) => quote!(::urn_rs),
+        Ok(FoundCrate::Itself) => quote!(::urn_rs::__private),
+        Err(_) => match crate_name("urn-rs-core") {
+            Ok(FoundCrate::Name(name)) => ident(&name),
+            Ok(FoundCrate::Itself) | Err(_) => quote!(::urn_rs_core),
+        },
     }
 }
 
@@ -69,7 +79,7 @@ pub fn urn(input: TokenStream) -> TokenStream {
         Ok(urn) => urn,
         Err(err) => return SynError::new(lit.span(), format!("invalid URN: {err}")).to_compile_error().into(),
     };
-    let krate = urn_rs_path();
+    let krate = core_path();
     let s = urn.as_str();
     let nid_len = Literal::usize_unsuffixed(urn.nid().len());
     let nss_len = Literal::usize_unsuffixed(urn.nss().len());

@@ -18,7 +18,12 @@ proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = "3.0.3"
-urn-rs.workspace = true
+urn-rs-core = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+# Doctests and tests use the macro the way users do, through `urn-rs`. Path-only, so
+# `cargo publish` drops it and publishing has no cycle.
+urn-rs = { path = "../urn-rs" }
 
 [lints]
 workspace = true

@@ -8,8 +8,7 @@
 Compile-time checked URN literals for [`urn-rs`](../../README.md).
 
 ```rust
-use urn_rs::UrnSlice;
-use urn_rs_static::urn;
+use urn_rs::{UrnSlice, urn};
 
 const ISBN: UrnSlice<'static> = urn!("urn:isbn:0451450523");
 static WEATHER: UrnSlice<'static> = urn!("URN:Example:weather?=op=map");
@@ -27,11 +26,13 @@ let _ = urn_rs_static::urn!("urn:example:"); // error: invalid URN: invalid urn 
 
 ## Install
 
+Enable the `static` feature of `urn-rs` (recommended), which re-exports the macro as `urn_rs::urn!`:
+
 ```sh
-cargo add urn-rs urn-rs-static
+cargo add urn-rs --features static
 ```
 
-The calling crate must depend on `urn-rs` directly, because the expansion refers to it. Renaming it in `Cargo.toml` is supported. Use the same release of both crates: the macro calls a hidden `urn-rs` constructor that isn't covered by semver.
+Depending on this crate directly also works. The calling crate then needs `urn-rs` or `urn-rs-core` as a direct dependency, because the expansion refers to it. Renaming either in `Cargo.toml` is supported. Use the same release for every crate: the macro calls a hidden constructor that isn't covered by semver.
 
 ## MSRV
 

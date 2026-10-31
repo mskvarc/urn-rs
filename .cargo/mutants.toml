@@ -12,47 +12,47 @@ exclude_re = [
     # `UrnBuilder::build_inner`: `+` in the capacity hint passed to `String::with_capacity`. A
     # wrong hint only changes how often the buffer reallocates. (The other `-` mutants there
     # underflow and panic, so the tests catch them.)
-    "^crates/urn-rs/src/lib\\.rs:91[3-8]:\\d+: replace \\+ with \\* in UrnBuilder<'a>::build_inner$",
-    "^crates/urn-rs/src/lib\\.rs:914:13: replace \\+ with - in UrnBuilder<'a>::build_inner$",
+    "^crates/urn-rs-core/src/lib\\.rs:(979|98[0-4]):\\d+: replace \\+ with \\* in UrnBuilder<'a>::build_inner$",
+    "^crates/urn-rs-core/src/lib\\.rs:980:13: replace \\+ with - in UrnBuilder<'a>::build_inner$",
 
     # `TriCow::ensure_owned` promotes a borrowed buffer before percent-normalizing it, so the
     # buffer is copied once instead of being checked again triplet by triplet.
     # `make_uppercase` copies a borrowed buffer itself when the range changes.
-    "^crates/urn-rs/src/cow\\.rs:86:9: replace TriCow<'_>::ensure_owned with \\(\\)$",
+    "^crates/urn-rs-core/src/cow\\.rs:86:9: replace TriCow<'_>::ensure_owned with \\(\\)$",
 
     # `PLAIN_PARSE = 1 << 0`: `1 >> 0` is the same value.
-    "^crates/urn-rs/src/tables\\.rs:16:38: replace << with >>$",
+    "^crates/urn-rs-core/src/tables\\.rs:16:38: replace << with >>$",
 
     # `parse` and `validate`: `while i < bytes.len()` to `<=`. At `i == len` the plain-run scan
     # returns `len`, and the loop breaks on the next line.
-    "^crates/urn-rs/src/component\\.rs:83:13: replace < with <= in parse$",
-    "^crates/urn-rs/src/component\\.rs:148:13: replace < with <= in validate$",
+    "^crates/urn-rs-core/src/component\\.rs:83:13: replace < with <= in parse$",
+    "^crates/urn-rs-core/src/component\\.rs:148:13: replace < with <= in validate$",
 
     # `parse` and `normalize_range`: `make_uppercase(i + 1..i + 3)` to `i * 1..i + 3`. The range
     # then also covers the `%`, which uppercasing leaves alone.
-    "^crates/urn-rs/src/component\\.rs:107:44: replace \\+ with \\* in parse$",
-    "^crates/urn-rs/src/component\\.rs:206:32: replace \\+ with \\* in normalize_range$",
+    "^crates/urn-rs-core/src/component\\.rs:107:44: replace \\+ with \\* in parse$",
+    "^crates/urn-rs-core/src/component\\.rs:206:32: replace \\+ with \\* in normalize_range$",
 
     # `normalize_range`: `while i + 2 < range.end` to `<=`. The range was validated, so no `%`
     # sits two bytes before its end; the extra step only moves past a plain byte.
-    "^crates/urn-rs/src/component\\.rs:204:17: replace < with <= in normalize_range$",
+    "^crates/urn-rs-core/src/component\\.rs:204:17: replace < with <= in normalize_range$",
 
     # `DecodeIter::next`: `(hi << 4) | lo` to `^`. The two operands share no bits.
-    "^crates/urn-rs/src/percent\\.rs:89:42: replace \\| with \\^ in <impl Iterator for DecodeIter<'_>>::next$",
+    "^crates/urn-rs-core/src/percent\\.rs:89:42: replace \\| with \\^ in <impl Iterator for DecodeIter<'_>>::next$",
 
     # `encode`: the plain-run fast path. Skipping or always taking it (`run_end > i` to `==`,
     # `<` or `>=`) leaves those bytes to the per-byte path, which emits the same output.
-    "^crates/urn-rs/src/percent\\.rs:233:20: replace > with (==|<|>=) in encode$",
+    "^crates/urn-rs-core/src/percent\\.rs:259:20: replace > with (==|<|>=) in encode$",
 
     # `encode` and `EncodeIter::next`: `b < 0x80` to `<=`. `s` is valid UTF-8, so a byte 0x80
     # (a continuation byte) never starts a character here; and if it did, both branches would
     # emit `%80`.
-    "^crates/urn-rs/src/percent\\.rs:243:14: replace < with <= in encode$",
-    "^crates/urn-rs/src/percent\\.rs:342:14: replace < with <= in <impl Iterator for EncodeIter<'_>>::next$",
+    "^crates/urn-rs-core/src/percent\\.rs:269:14: replace < with <= in encode$",
+    "^crates/urn-rs-core/src/percent\\.rs:368:14: replace < with <= in <impl Iterator for EncodeIter<'_>>::next$",
 
     # `encode`: the loop that gathers a multi-byte character's continuation bytes into one push.
     # Without it (`i < len` to `>`, or `& 0xC0` to `| 0xC0`), each continuation byte goes through
     # the non-ASCII branch on its own and is encoded the same way.
-    "^crates/urn-rs/src/percent\\.rs:277:21: replace < with > in encode$",
-    "^crates/urn-rs/src/percent\\.rs:277:48: replace & with \\| in encode$",
+    "^crates/urn-rs-core/src/percent\\.rs:303:21: replace < with > in encode$",
+    "^crates/urn-rs-core/src/percent\\.rs:303:48: replace & with \\| in encode$",
 ]

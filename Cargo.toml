@@ -13,7 +13,8 @@ authors = [
 license = "0BSD OR MIT OR Apache-2.0"
 
 [workspace.dependencies]
-urn-rs = { path = "crates/urn-rs", version = "0.9.2" }
+urn-rs-core = { path = "crates/urn-rs-core", version = "0.9.2", default-features = false }
+urn-rs-static = { path = "crates/urn-rs-static", version = "0.9.2" }
 
 [workspace.lints.rust]
 missing_docs = "deny"

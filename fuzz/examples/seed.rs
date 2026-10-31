@@ -10,13 +10,13 @@
 #![expect(clippy::expect_used, reason = "a one-shot tool: failing loudly is the right answer")]
 
 #[expect(dead_code, reason = "only the inputs are used")]
-#[path = "../../crates/urn-rs/tests/conformance/case.rs"]
+#[path = "../../crates/urn-rs-core/tests/conformance/case.rs"]
 mod case;
-#[path = "../../crates/urn-rs/tests/conformance/equivalence.rs"]
+#[path = "../../crates/urn-rs-core/tests/conformance/equivalence.rs"]
 mod equivalence;
-#[path = "../../crates/urn-rs/tests/conformance/invalid.rs"]
+#[path = "../../crates/urn-rs-core/tests/conformance/invalid.rs"]
 mod invalid;
-#[path = "../../crates/urn-rs/tests/conformance/valid.rs"]
+#[path = "../../crates/urn-rs-core/tests/conformance/valid.rs"]
 mod valid;
 
 use std::{

@@ -27,7 +27,7 @@ Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/c
 - SWAR fast path and hex lookup tables for percent decode/encode.
 - Fewer allocations in builder, accessors, setters, serde.
 - `Ord` / `PartialOrd` on `Urn` and `UrnSlice`.
-- Criterion bench suite under `crates/urn-rs/benches/`.
+- Criterion bench suite under `crates/urn-rs-core/benches/`.
 - Rust 2024 edition, MSRV 1.85.
 - Renamed to `urn-rs`.
 
@@ -47,25 +47,33 @@ cargo add urn-rs
 | `alloc`    |         | Owned `Urn`, `UrnBuilder`, `String`-returning APIs                         |
 | `serde`    |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice`                       |
 | `exact-eq` |         | Include r-/q-/f-components in `PartialEq` / `Ord` / `Hash` (normalized)    |
+| `static`   |         | `urn!` macro for compile-time checked URN literals                         |
 
 For `no_std`, disable default features. You get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for `Urn` and the builder.
 
 ## Compile-time literals
 
-The companion crate [`urn-rs-static`](crates/urn-rs-static/) checks URN literals at compile time:
+The `static` feature adds `urn!`, which checks a URN literal at compile time:
 
 ```sh
-cargo add urn-rs urn-rs-static
+cargo add urn-rs --features static
 ```
 
 ```rust
-use urn_rs::UrnSlice;
-use urn_rs_static::urn;
+use urn_rs::{UrnSlice, urn};
 
 const ISBN: UrnSlice<'static> = urn!("urn:isbn:0451450523");
 ```
 
 An invalid literal is a compile error, and nothing is parsed at runtime. `UrnSlice::from_static` does the same check at runtime.
+
+## Crates
+
+| Crate                                       | Contents                                                     |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| [`urn-rs`](crates/urn-rs/)                  | The crate to depend on. Re-exports the other two.            |
+| [`urn-rs-core`](crates/urn-rs-core/)        | Types, parser, percent-encoding                              |
+| [`urn-rs-static`](crates/urn-rs-static/)    | The `urn!` proc macro                                        |
 
 ## Equivalence
 

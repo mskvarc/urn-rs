@@ -1,0 +1,1743 @@
+//! Core types and parser behind [`urn-rs`](https://docs.rs/urn-rs).
+//!
+//! Depend on `urn-rs` instead: it re-exports everything here, and its `static` feature adds
+//! the compile-time checked `urn!` macro. This crate is separate only so that the macro crate
+//! can use the parser without a dependency cycle.
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
+#[cfg(feature = "alloc")]
+use core::str::FromStr;
+use core::{
+    cmp::Ordering,
+    convert::{TryFrom, TryInto},
+    fmt,
+    hash::{self, Hash},
+    iter::FusedIterator,
+    num::{NonZeroU8, NonZeroU32},
+    ops::Range,
+    result,
+    str,
+};
+
+#[cfg(feature = "std")]
+use std::borrow::ToOwned;
+
+mod cow;
+use cow::TriCow;
+
+mod tables;
+
+#[cfg(feature = "alloc")]
+mod owned;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use owned::Urn;
+
+mod component;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub mod percent;
+use component::{
+    normalize_range,
+    parse_f_component,
+    parse_nss,
+    parse_q_component,
+    parse_r_component,
+    validate_f_component,
+    validate_nss,
+    validate_q_component,
+    validate_r_component,
+};
+
+#[cfg(feature = "serde")]
+mod serde;
+
+/// Checks whether a string is a valid NID
+fn is_valid_nid(s: &str) -> bool {
+    check_nid(s).is_ok()
+}
+
+/// Single-pass NID validation plus ASCII-uppercase detection. Returns
+/// `Ok(has_upper)` for a valid NID, `Err(InvalidNid)` otherwise.
+///
+/// RFC 8141: `NID = (alphanum) 0*30(ldh) (alphanum)`, so 2 to 32 letters, digits and `-`, not
+/// starting or ending with `-`. RFC 2141 allowed a trailing `-`; RFC 8141 Appendix B removed it.
+/// RFC 2141 §2 also reserves the NID `urn` (in any case), which RFC 8141 never released.
+fn check_nid(s: &str) -> Result<bool> {
+    let bytes = s.as_bytes();
+    if !(2..=32).contains(&bytes.len()) || bytes.starts_with(b"-") || bytes.ends_with(b"-") || bytes.eq_ignore_ascii_case(b"urn") {
+        return Err(Error::InvalidNid);
+    }
+    let mut has_upper = false;
+    for &b in bytes {
+        if tables::BYTE_CLASS[b as usize] & tables::NID == 0 {
+            return Err(Error::InvalidNid);
+        }
+        has_upper |= b.is_ascii_uppercase();
+    }
+    Ok(has_upper)
+}
+
+const URN_PREFIX: &str = "urn:";
+const NID_NSS_SEPARATOR: &str = ":";
+const RCOMP_PREFIX: &str = "?+";
+const QCOMP_PREFIX: &str = "?=";
+const FCOMP_PREFIX: &str = "#";
+
+fn parse_urn(mut s: TriCow) -> Result<UrnSlice> {
+    // ensure that the first 4 bytes are a valid substring
+    if !s.is_char_boundary(URN_PREFIX.len()) {
+        return Err(Error::InvalidScheme);
+    }
+
+    s.make_lowercase(..URN_PREFIX.len())?;
+
+    if &s[..URN_PREFIX.len()] != URN_PREFIX {
+        return Err(Error::InvalidScheme);
+    }
+
+    let nid_start = URN_PREFIX.len();
+    let nid_end = nid_start
+        + s[nid_start..].find(NID_NSS_SEPARATOR).ok_or_else(|| {
+            if is_valid_nid(&s[nid_start..]) {
+                // If NID is present, but the NSS and its separator aren't, it counts as an NSS error
+                Error::InvalidNss
+            } else {
+                // the NSS separator couldn't be found, but whatever has been found doesn't even count as a valid NID
+                Error::InvalidNid
+            }
+        })?;
+
+    if !is_valid_nid(&s[nid_start..nid_end]) {
+        return Err(Error::InvalidNid);
+    }
+
+    // Now that we know the NID is valid, normalize it
+    s.make_lowercase(nid_start..nid_end)?;
+
+    let nss_start = nid_end + NID_NSS_SEPARATOR.len();
+    let nss_end = parse_nss(&mut s, nss_start)?;
+
+    // NSS must be at least one character long
+    if nss_end == nss_start {
+        return Err(Error::InvalidNss);
+    }
+
+    let mut end = nss_end;
+    let mut last_component_error = Error::InvalidNss;
+
+    let r_component_len = if s[end..].starts_with(RCOMP_PREFIX) {
+        let rc_start = end + RCOMP_PREFIX.len();
+        end = parse_r_component(&mut s, rc_start)?;
+        last_component_error = Error::InvalidRComponent;
+        Some((end - rc_start).try_into().ok().and_then(NonZeroU32::new).ok_or(last_component_error)?)
+    } else {
+        None
+    };
+
+    let q_component_len = if s[end..].starts_with(QCOMP_PREFIX) {
+        let qc_start = end + QCOMP_PREFIX.len();
+        end = parse_q_component(&mut s, qc_start)?;
+        last_component_error = Error::InvalidQComponent;
+        Some((end - qc_start).try_into().ok().and_then(NonZeroU32::new).ok_or(last_component_error)?)
+    } else {
+        None
+    };
+
+    if s[end..].starts_with(FCOMP_PREFIX) {
+        let fc_start = end + FCOMP_PREFIX.len();
+        end = parse_f_component(&mut s, fc_start)?;
+        last_component_error = Error::InvalidFComponent;
+    }
+
+    if end < s.len() {
+        return Err(last_component_error);
+    }
+
+    // NID length range is 2..=32 bytes, so it always fits into non-zero u8.
+    let nid_len = u8::try_from(nid_end - nid_start).ok().and_then(NonZeroU8::new).ok_or(Error::InvalidNid)?;
+    // NSS always has non-zero length.
+    let nss_len = u32::try_from(nss_end - nss_start).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidNss)?;
+    Ok(UrnSlice {
+        urn: s,
+        nid_len,
+        nss_len,
+        r_component_len,
+        q_component_len,
+    })
+}
+
+/// A URN validation error.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum Error {
+    /// The URN has an invalid scheme.
+    #[error("invalid urn scheme")]
+    InvalidScheme,
+    /// The URN has an invalid NID (Namespace ID). A valid NID is 2 to 32 ASCII letters, digits
+    /// and `-`, doesn't start or end with `-`, and isn't the reserved NID `urn`.
+    #[error("invalid urn nid (namespace id)")]
+    InvalidNid,
+    /// The URN has an invalid NSS (Namespace-specific string).
+    #[error("invalid urn nss (namespace-specific string)")]
+    InvalidNss,
+    /// The URN has an invalid r-component.
+    #[error("invalid urn r-component")]
+    InvalidRComponent,
+    /// The URN has an invalid q-component.
+    #[error("invalid urn q-component")]
+    InvalidQComponent,
+    /// The URN has an invalid f-component.
+    #[error("invalid urn f-component (fragment)")]
+    InvalidFComponent,
+    /// Allocation is required, but not possible. This is only ever created when `alloc` feature
+    /// is disabled.
+    #[error("an allocation was required, but not possible")]
+    AllocRequired,
+    /// The input bytes are not valid UTF-8.
+    #[error("urn contains invalid utf-8")]
+    InvalidUtf8,
+}
+
+type Result<T, E = Error> = result::Result<T, E>;
+
+/// A borrowed RFC2141/8141 URN (Uniform Resource Name). This is a copy-on-write type.
+///
+/// It will have to allocate if you call any of the setters. If you create it via
+/// `TryFrom<String>`, the provided buffer will be used. If you disable `alloc` feature, this stops
+/// being a copy-on-write type and starts being a regular borrow.
+///
+/// **Note:** the equivalence checks are done
+/// [according to the specification](https://www.rfc-editor.org/rfc/rfc8141.html#section-3),
+/// only taking the NID and NSS into account! If you need exact equivalence checks, consider
+/// comparing using `Urn::as_str()` as the key, or enable the `exact-eq` feature to make
+/// `PartialEq`, `Ord`, and `Hash` operate on the whole (normalized) URN string including
+/// r-, q-, and f-components. Some namespaces may define additional lexical
+/// equivalence rules, these aren't accounted for in this implementation (Meaning there might be
+/// false negatives for some namespaces). There will, however, be no false positives.
+///
+/// # Equivalence and the `Borrow`/`Hash` contract
+///
+/// With the default (`exact-eq` **off**) equivalence, two URNs can compare `Eq`-equal while
+/// holding distinct `as_str()` representations (they may differ in r/q/f-components). A
+/// hypothetical `Borrow<str>` impl would therefore violate the [`Borrow`] / [`Eq`] / [`Hash`]
+/// contract, so this crate intentionally does not provide one. Callers who need `HashMap`
+/// lookup keyed by the raw URN string should either key on `String` directly, call
+/// `.as_str().to_owned()` after parsing, or enable the `exact-eq` feature — the latter makes
+/// the hash contract match `as_str()`, at the cost of RFC 8141 §3 equivalence.
+///
+/// [`Borrow`]: core::borrow::Borrow
+///
+#[cfg_attr(
+    feature = "alloc",
+    doc = "Unlike [`Urn`]:
+- When created via `TryFrom<&str>`, allocations only occur if the URN isn't normalized
+  (uppercase percent-encoded characters and lowercase `urn` scheme and NID)
+- When created via `TryFrom<&mut str>`, no allocations are done at all.
+
+`FromStr` is always required to allocate, so you should use `TryFrom` when possible."
+)]
+///
+/// # Cloning
+///
+/// `Clone` requires the `alloc` feature. Cloning a slice created from `&str` copies only the
+/// reference, and cloning an owned slice copies its buffer. A slice created from `&mut str`
+/// can't share that mutable borrow, so its clone owns a copy of the string.
+#[cfg_attr(feature = "alloc", derive(Clone))]
+pub struct UrnSlice<'a> {
+    // Entire URN string
+    urn: TriCow<'a>,
+    nid_len: NonZeroU8,
+    nss_len: NonZeroU32,
+    r_component_len: Option<NonZeroU32>,
+    q_component_len: Option<NonZeroU32>,
+}
+
+impl UrnSlice<'static> {
+    /// Parse a `&'static str` into a `UrnSlice<'static>`.
+    ///
+    /// When the input is already normalized (lowercase `urn:` scheme + NID, uppercase hex in
+    /// every `%XX` triplet), this is zero-allocation — the returned slice borrows the input.
+    /// Otherwise the parser promotes to an owned buffer to perform the normalization.
+    ///
+    /// ```
+    /// # use urn_rs::UrnSlice;
+    /// let u = UrnSlice::from_static("urn:example:foo").unwrap();
+    /// assert_eq!(u.as_str(), "urn:example:foo");
+    /// ```
+    ///
+    /// Validation runs at runtime. To check a literal at compile time instead, use the `urn!`
+    /// macro (`static` feature of `urn-rs`).
+    ///
+    /// # Errors
+    /// Returns the component-specific error variant on validation failure.
+    pub fn from_static(s: &'static str) -> Result<UrnSlice<'static>> {
+        parse_urn(TriCow::Borrowed(s))
+    }
+
+    /// Build a slice from a normalized URN and its component lengths, without validating.
+    ///
+    /// Only for the code the `urn!` macro emits, which validates and normalizes the
+    /// literal during macro expansion and calls this inside a `const` block. Not part of the
+    /// public API: it may change in any release.
+    ///
+    /// A length of 0 means the r- or q-component is absent. `nid_len` and `nss_len` must not
+    /// be 0; inside a `const` block, a 0 there fails compilation.
+    #[doc(hidden)]
+    #[must_use]
+    #[expect(clippy::panic, reason = "only evaluated in a const block, where a panic is a compile error")]
+    pub const fn __from_static_parts(urn: &'static str, nid_len: u8, nss_len: u32, r_component_len: u32, q_component_len: u32) -> Self {
+        let (Some(nid_len), Some(nss_len)) = (NonZeroU8::new(nid_len), NonZeroU32::new(nss_len)) else {
+            panic!("urn-rs: NID and NSS lengths must be non-zero");
+        };
+        Self {
+            urn: TriCow::Borrowed(urn),
+            nid_len,
+            nss_len,
+            r_component_len: NonZeroU32::new(r_component_len),
+            q_component_len: NonZeroU32::new(q_component_len),
+        }
+    }
+}
+
+impl UrnSlice<'_> {
+    #[inline]
+    const fn nid_range(&self) -> Range<usize> {
+        // urn:<nid>
+        let start = URN_PREFIX.len();
+        start..start + self.nid_len.get() as usize
+    }
+
+    #[inline]
+    const fn nss_range(&self) -> Range<usize> {
+        // ...<nid>:<nss>
+        let start = self.nid_range().end + NID_NSS_SEPARATOR.len();
+        start..start + self.nss_len.get() as usize
+    }
+
+    #[inline]
+    fn r_component_range(&self) -> Option<Range<usize>> {
+        self.r_component_len.map(|r_component_len| {
+            // ...<nss>[?+<r-component>]
+            let start = self.nss_range().end + RCOMP_PREFIX.len();
+            start..start + r_component_len.get() as usize
+        })
+    }
+
+    /// end of the last component before q-component
+    #[inline]
+    fn pre_q_component_end(&self) -> usize {
+        self.r_component_range().unwrap_or_else(|| self.nss_range()).end
+    }
+
+    #[inline]
+    fn q_component_range(&self) -> Option<Range<usize>> {
+        self.q_component_len.map(|q_component_len| {
+            // ...<nss>[?+<r-component>][?=<q-component>]
+            let start = self.pre_q_component_end() + QCOMP_PREFIX.len();
+            start..start + q_component_len.get() as usize
+        })
+    }
+
+    /// end of the last component before f-component
+    #[inline]
+    fn pre_f_component_end(&self) -> usize {
+        self.q_component_range()
+            .or_else(|| self.r_component_range())
+            .unwrap_or_else(|| self.nss_range())
+            .end
+    }
+
+    /// Consume the slice and return an owned [`Urn`] that no longer borrows the input.
+    ///
+    /// The buffer is moved when the slice already owns it, for example after `TryFrom<String>`
+    /// or a setter that had to reallocate. Otherwise the string is copied once.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), urn_rs::Error> {
+    /// use urn_rs::{Urn, UrnSlice};
+    ///
+    /// fn parse_static(input: &str) -> Result<Urn, urn_rs::Error> {
+    ///     Ok(UrnSlice::try_from(input)?.into_owned())
+    /// }
+    ///
+    /// let urn = parse_static(&String::from("urn:example:foo"))?;
+    /// assert_eq!(urn.as_str(), "urn:example:foo");
+    /// # Ok(()) }
+    /// ```
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+    #[inline]
+    #[must_use]
+    pub fn into_owned(self) -> Urn {
+        Urn(UrnSlice {
+            urn: TriCow::Owned(self.urn.into_string()),
+            nid_len: self.nid_len,
+            nss_len: self.nss_len,
+            r_component_len: self.r_component_len,
+            q_component_len: self.q_component_len,
+        })
+    }
+
+    #[inline]
+    fn f_component_start(&self) -> Option<usize> {
+        // ...[#<f-component>]
+        Some(self.pre_f_component_end()).filter(|x| *x < self.urn.len()).map(|x| x + FCOMP_PREFIX.len())
+    }
+
+    /// Normalized string representation of this URN.
+    ///
+    /// The returned string is *not* a verbatim copy of the input. Per RFC 8141, parsing
+    /// applies these transformations:
+    /// - the `urn:` scheme and the NID are lowercased;
+    /// - percent-encoded triplets (`%XX`) have their hex digits uppercased.
+    ///
+    /// The NSS and the r/q/f components are otherwise preserved as-given.
+    ///
+    /// ```
+    /// # #[cfg(not(feature = "alloc"))] fn main() {}
+    /// # #[cfg(feature = "alloc")]
+    /// # fn main() { test_main().unwrap() }
+    /// # #[cfg(feature = "alloc")]
+    /// # fn test_main() -> Result<(), urn_rs::Error> {
+    /// use urn_rs::UrnSlice;
+    /// let urn = UrnSlice::try_from("uRn:eXaMpLe:%3d%3a")?;
+    /// assert_eq!(urn.as_str(), "urn:example:%3D%3A");
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.urn
+    }
+
+    /// NID (Namespace identifier), the first part of the URN.
+    ///
+    /// For example, in `urn:ietf:rfc:2648`, `ietf` is the namespace.
+    #[must_use]
+    #[inline]
+    pub fn nid(&self) -> &str {
+        &self.urn[self.nid_range()]
+    }
+    /// Set the NID (must be [a valid
+    /// NID](https://datatracker.ietf.org/doc/html/rfc8141#section-2)).
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidNid`] in case of a validation failure.
+    pub fn set_nid(&mut self, nid: &str) -> Result<()> {
+        let has_upper = check_nid(nid)?;
+        // check_nid enforced 2..=32 byte length, so this always fits into non-zero u8.
+        let nid_len = u8::try_from(nid.len()).ok().and_then(NonZeroU8::new).ok_or(Error::InvalidNid)?;
+        let range = self.nid_range();
+        let start = range.start;
+        self.urn.replace_range(range, nid)?;
+        if has_upper {
+            // After a successful replace_range, self.urn is Owned or MutBorrowed; make_lowercase
+            // on those variants is infallible.
+            self.urn.make_lowercase(start..start + nid.len())?;
+        }
+        self.nid_len = nid_len;
+        Ok(())
+    }
+    /// Percent-encoded NSS (Namespace-specific string) identifying the resource.
+    ///
+    /// For example, in `urn:ietf:rfc:2648`, `rfs:2648` is the NSS.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_nss`]")]
+    #[must_use]
+    #[inline]
+    pub fn nss(&self) -> &str {
+        &self.urn[self.nss_range()]
+    }
+    /// Set the NSS (must be [a valid NSS](https://datatracker.ietf.org/doc/html/rfc8141#section-2)
+    /// and use percent-encoding).
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidNss`] in case of a validation failure.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_nss`]")]
+    pub fn set_nss(&mut self, nss: &str) -> Result<()> {
+        let (end, needs_norm) = validate_nss(nss);
+        if nss.is_empty() || end != nss.len() {
+            return Err(Error::InvalidNss);
+        }
+        // NSS length is non-zero as checked above.
+        let nss_len = u32::try_from(nss.len()).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidNss)?;
+        let range = self.nss_range();
+        let start = range.start;
+        self.urn.replace_range(range, nss)?;
+        if needs_norm {
+            normalize_range(&mut self.urn, start..start + nss.len())?;
+        }
+        self.nss_len = nss_len;
+        Ok(())
+    }
+    /// Percent-encoded r-component, following the `?+` character sequence, to be used for passing
+    /// parameters to URN resolution services.
+    ///
+    /// In `urn:example:foo-bar-baz-qux?+CCResolve:cc=uk`, the r-component is `CCResolve:cc=uk`.
+    ///
+    /// Should not be used for equivalence checks. As of the time of writing this, exact semantics
+    /// aren't in the RFC.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_r_component`]")]
+    #[must_use]
+    #[inline]
+    pub fn r_component(&self) -> Option<&str> {
+        self.r_component_range().map(|range| &self.urn[range])
+    }
+    /// Set the r-component (must be [a valid
+    /// r-component](https://datatracker.ietf.org/doc/html/rfc8141#section-2) and use
+    /// percent-encoding).
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidRComponent`] in case of a validation failure.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_r_component`]")]
+    pub fn set_r_component(&mut self, r_component: Option<&str>) -> Result<()> {
+        if let Some(rc) = r_component {
+            let (end, needs_norm) = validate_r_component(rc);
+            if rc.is_empty() || end != rc.len() {
+                return Err(Error::InvalidRComponent);
+            }
+            let rc_len = u32::try_from(rc.len()).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidRComponent)?;
+            let range = if let Some(range) = self.r_component_range() {
+                range
+            } else {
+                // insert RCOMP_PREFIX if r-component doesn't already exist
+                let nss_end = self.nss_range().end;
+                self.urn.replace_range(nss_end..nss_end, RCOMP_PREFIX)?;
+                nss_end + RCOMP_PREFIX.len()..nss_end + RCOMP_PREFIX.len()
+            };
+            let start = range.start;
+            self.urn.replace_range(range, rc)?;
+            if needs_norm {
+                normalize_range(&mut self.urn, start..start + rc.len())?;
+            }
+            self.r_component_len = Some(rc_len);
+        } else if let Some(mut range) = self.r_component_range() {
+            range.start -= RCOMP_PREFIX.len();
+            self.urn.replace_range(range, "")?;
+            self.r_component_len = None;
+        }
+        Ok(())
+    }
+    /// Percent-encoded q-component, following the `?=` character sequence. Has a similar function to the URL query
+    /// string.
+    ///
+    /// In `urn:example:weather?=op=map&lat=39.56&lon=-104.85`,
+    /// the q-component is `op=map&lat=39.56&lon=-104.85`.
+    ///
+    /// Should not be used for equivalence checks.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_component`]")]
+    #[must_use]
+    #[inline]
+    pub fn q_component(&self) -> Option<&str> {
+        self.q_component_range().map(|range| &self.urn[range])
+    }
+    /// Iterator over the `key=value` pairs of the q-component.
+    ///
+    /// RFC 8141 gives the q-component the syntax and semantics of a URI query, so it's split the
+    /// way query strings conventionally are: pairs are separated by `&`, and each pair splits at its
+    /// first `=`. A pair without `=` yields `None` as its value, which keeps `key` and `key=`
+    /// apart. Empty pairs (from `&&` or a trailing `&`) are skipped. A URN without a q-component
+    /// yields nothing.
+    ///
+    /// Keys and values are returned as they appear in the URN, still percent-encoded. `+` isn't
+    /// treated as a space, since that's an HTML form convention, not part of URI syntax.
+    ///
+    /// ```
+    /// # use urn_rs::UrnSlice; fn test_main() -> Result<(), urn_rs::Error> {
+    /// let urn = UrnSlice::try_from("urn:example:weather?=op=map&lat=39.56&lon=-104.85&verbose")?;
+    /// let pairs: Vec<_> = urn.q_pairs().collect();
+    /// assert_eq!(
+    ///     pairs,
+    ///     [("op", Some("map")), ("lat", Some("39.56")), ("lon", Some("-104.85")), ("verbose", None)]
+    /// );
+    /// # Ok(()) } test_main().unwrap();
+    /// ```
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_param`]")]
+    #[must_use]
+    pub fn q_pairs(&self) -> QPairs<'_> {
+        QPairs {
+            inner: self.q_component().unwrap_or_default().split('&'),
+        }
+    }
+    /// Set the q-component (must be [a valid
+    /// q-component](https://datatracker.ietf.org/doc/html/rfc8141#section-2) and use
+    /// percent-encoding).
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidQComponent`] in case of a validation failure.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_q_component`]")]
+    pub fn set_q_component(&mut self, q_component: Option<&str>) -> Result<()> {
+        if let Some(qc) = q_component {
+            let (end, needs_norm) = validate_q_component(qc);
+            if qc.is_empty() || end != qc.len() {
+                return Err(Error::InvalidQComponent);
+            }
+            let qc_len = u32::try_from(qc.len()).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidQComponent)?;
+            let range = if let Some(range) = self.q_component_range() {
+                range
+            } else {
+                // insert QCOMP_PREFIX if q-component doesn't already exist
+                let pre_qc_end = self.pre_q_component_end();
+                self.urn.replace_range(pre_qc_end..pre_qc_end, QCOMP_PREFIX)?;
+                pre_qc_end + QCOMP_PREFIX.len()..pre_qc_end + QCOMP_PREFIX.len()
+            };
+            let start = range.start;
+            self.urn.replace_range(range, qc)?;
+            if needs_norm {
+                normalize_range(&mut self.urn, start..start + qc.len())?;
+            }
+            self.q_component_len = Some(qc_len);
+        } else if let Some(mut range) = self.q_component_range() {
+            range.start -= QCOMP_PREFIX.len();
+            self.urn.replace_range(range, "")?;
+            self.q_component_len = None;
+        }
+        Ok(())
+    }
+    /// Percent-encoded f-component following the `#` character at the end of the URN. Has a
+    /// similar function to the URL fragment.
+    ///
+    /// In `urn:example:a123,z456#789`, the f-component is `789`.
+    ///
+    /// Should not be used for equivalence checks.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_f_component`]")]
+    #[must_use]
+    #[inline]
+    pub fn f_component(&self) -> Option<&str> {
+        self.f_component_start().map(|start| &self.urn[start..])
+    }
+    /// Set the f-component (must be [a valid
+    /// f-component](https://datatracker.ietf.org/doc/html/rfc8141#section-2) and use
+    /// percent-encoding).
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidFComponent`] in case of a validation failure.
+    ///
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_f_component`]")]
+    pub fn set_f_component(&mut self, f_component: Option<&str>) -> Result<()> {
+        if let Some(fc) = f_component {
+            let (end, needs_norm) = validate_f_component(fc);
+            if end != fc.len() {
+                return Err(Error::InvalidFComponent);
+            }
+            let start = if let Some(start) = self.f_component_start() {
+                start
+            } else {
+                let range = self.urn.len()..self.urn.len();
+                self.urn.replace_range(range, FCOMP_PREFIX)?;
+                self.urn.len()
+            };
+            let len = self.urn.len();
+            self.urn.replace_range(start..len, fc)?;
+            if needs_norm {
+                normalize_range(&mut self.urn, start..start + fc.len())?;
+            }
+        } else if let Some(start) = self.f_component_start() {
+            let len = self.urn.len();
+            self.urn.replace_range(start - FCOMP_PREFIX.len()..len, "")?;
+        }
+        Ok(())
+    }
+}
+
+/// Iterator over the q-component's `key=value` pairs, returned by [`UrnSlice::q_pairs`].
+///
+/// Yields `(key, value)` with both still percent-encoded; `value` is `None` for a pair without `=`.
+#[derive(Clone, Debug)]
+pub struct QPairs<'a> {
+    inner: str::Split<'a, char>,
+}
+
+impl<'a> QPairs<'a> {
+    fn split_pair(pair: &'a str) -> Option<(&'a str, Option<&'a str>)> {
+        if pair.is_empty() {
+            return None;
+        }
+        Some(pair.split_once('=').map_or((pair, None), |(key, value)| (key, Some(value))))
+    }
+}
+
+impl<'a> Iterator for QPairs<'a> {
+    type Item = (&'a str, Option<&'a str>);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.by_ref().find_map(Self::split_pair)
+    }
+}
+
+impl DoubleEndedIterator for QPairs<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.by_ref().rev().find_map(Self::split_pair)
+    }
+}
+
+impl FusedIterator for QPairs<'_> {}
+
+impl fmt::Debug for UrnSlice<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "UrnSlice({})", self.as_str())
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl PartialEq<Urn> for UrnSlice<'_> {
+    fn eq(&self, other: &Urn) -> bool {
+        self == &other.0
+    }
+}
+
+impl AsRef<[u8]> for UrnSlice<'_> {
+    fn as_ref(&self) -> &[u8] {
+        self.urn.as_bytes()
+    }
+}
+
+impl AsRef<str> for UrnSlice<'_> {
+    fn as_ref(&self) -> &str {
+        &self.urn
+    }
+}
+
+impl UrnSlice<'_> {
+    /// Portion of the normalized URN string used for equivalence (`PartialEq`,
+    /// `Ord`, `Hash`). With the `exact-eq` feature this is the whole URN
+    /// including r/q/f-components; otherwise just scheme + NID + NSS per
+    /// RFC 8141 §3.
+    #[inline]
+    fn eq_slice(&self) -> &str {
+        #[cfg(feature = "exact-eq")]
+        {
+            &self.urn[..]
+        }
+        #[cfg(not(feature = "exact-eq"))]
+        {
+            &self.urn[..self.nss_range().end]
+        }
+    }
+}
+
+impl PartialEq for UrnSlice<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.eq_slice() == other.eq_slice()
+    }
+}
+
+impl Eq for UrnSlice<'_> {}
+
+impl Ord for UrnSlice<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.eq_slice().cmp(other.eq_slice())
+    }
+}
+
+impl PartialOrd for UrnSlice<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Hash for UrnSlice<'_> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.eq_slice().hash(state);
+    }
+}
+
+impl fmt::Display for UrnSlice<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str(&self.urn)
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl FromStr for UrnSlice<'_> {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        parse_urn(TriCow::Owned(s.to_owned()))
+    }
+}
+
+impl<'a> TryFrom<&'a str> for UrnSlice<'a> {
+    type Error = Error;
+    fn try_from(value: &'a str) -> Result<Self> {
+        parse_urn(TriCow::Borrowed(value))
+    }
+}
+
+/// Construct a `UrnSlice` from a mutable string slice, normalizing in place with no allocation.
+///
+/// The input buffer is mutated directly (lowercasing the scheme/NID and uppercasing
+/// percent-encoded triplets), and the returned `UrnSlice` borrows it — so no heap
+/// allocation occurs on any input.
+///
+/// ```
+/// # use urn_rs::UrnSlice;
+/// let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
+/// let s = str::from_utf8_mut(&mut buf[..]).unwrap();
+/// let urn = UrnSlice::try_from(s).unwrap();
+/// assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
+/// ```
+impl<'a> TryFrom<&'a mut str> for UrnSlice<'a> {
+    type Error = Error;
+    fn try_from(value: &'a mut str) -> Result<Self> {
+        parse_urn(TriCow::MutBorrowed(value))
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl TryFrom<String> for UrnSlice<'static> {
+    type Error = Error;
+    fn try_from(value: String) -> Result<Self> {
+        parse_urn(TriCow::Owned(value))
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for UrnSlice<'a> {
+    type Error = Error;
+    fn try_from(value: &'a [u8]) -> Result<Self> {
+        let s = str::from_utf8(value).map_err(|_| Error::InvalidUtf8)?;
+        parse_urn(TriCow::Borrowed(s))
+    }
+}
+
+impl<'a> TryFrom<&'a mut [u8]> for UrnSlice<'a> {
+    type Error = Error;
+    fn try_from(value: &'a mut [u8]) -> Result<Self> {
+        let s = str::from_utf8_mut(value).map_err(|_| Error::InvalidUtf8)?;
+        parse_urn(TriCow::MutBorrowed(s))
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+impl TryFrom<Vec<u8>> for UrnSlice<'static> {
+    type Error = Error;
+    fn try_from(value: Vec<u8>) -> Result<Self> {
+        let s = String::from_utf8(value).map_err(|_| Error::InvalidUtf8)?;
+        parse_urn(TriCow::Owned(s))
+    }
+}
+
+/// A struct used for constructing URNs.
+///
+/// # Example
+/// ```
+/// # #[cfg(not(feature = "std"))]
+/// # fn main() { }
+/// # #[cfg(feature = "std")]
+/// # use urn_rs::{Urn, UrnBuilder};
+/// # #[cfg(feature = "std")]
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let urn = UrnBuilder::new("example", "1234:5678").build()?;
+/// assert_eq!(urn.as_str(), "urn:example:1234:5678");
+/// assert_eq!(urn, "urn:example:1234:5678".parse::<Urn>()?); // Using std::str::parse
+/// assert_eq!(urn.nss(), "1234:5678");
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+#[derive(Debug)]
+#[must_use]
+pub struct UrnBuilder<'a> {
+    nid: &'a str,
+    nss: &'a str,
+    r_component: Option<&'a str>,
+    q_component: Option<&'a str>,
+    f_component: Option<&'a str>,
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> UrnBuilder<'a> {
+    /// Create a new `UrnBuilder`.
+    ///
+    /// - `nid`: the namespace identifier
+    /// - `nss`: the percent-encoded NSS (namespace-specific string)
+    ///
+    /// # See also
+    /// - [`percent::encode_nss`]
+    pub const fn new(nid: &'a str, nss: &'a str) -> Self {
+        Self {
+            nid,
+            nss,
+            r_component: None,
+            q_component: None,
+            f_component: None,
+        }
+    }
+    /// Change the namespace identifier.
+    pub const fn nid(mut self, nid: &'a str) -> Self {
+        self.nid = nid;
+        self
+    }
+    /// Change the namespace-specific string (must be percent encoded).
+    ///
+    /// # See also
+    /// - [`percent::encode_nss`]
+    pub const fn nss(mut self, nss: &'a str) -> Self {
+        self.nss = nss;
+        self
+    }
+    /// Change the r-component (must be percent encoded).
+    ///
+    /// # See also
+    /// - [`percent::encode_r_component`]
+    pub const fn r_component(mut self, r_component: Option<&'a str>) -> Self {
+        self.r_component = r_component;
+        self
+    }
+    /// Change the q-component (must be percent encoded).
+    ///
+    /// # See also
+    /// - [`percent::encode_q_component`]
+    pub const fn q_component(mut self, q_component: Option<&'a str>) -> Self {
+        self.q_component = q_component;
+        self
+    }
+    /// Change the f-component (must be percent encoded).
+    ///
+    /// # See also
+    /// - [`percent::encode_f_component`]
+    pub const fn f_component(mut self, f_component: Option<&'a str>) -> Self {
+        self.f_component = f_component;
+        self
+    }
+    /// [Validate the data](https://datatracker.ietf.org/doc/html/rfc8141#section-2) and create the URN.
+    ///
+    /// # Errors
+    ///
+    /// In case of a validation failure, returns an error specifying the component that failed
+    /// validation
+    pub fn build(self) -> Result<Urn> {
+        self.build_inner().map(Urn)
+    }
+
+    /// Same as [`build`](Self::build), but returns a [`UrnSlice<'static>`] directly — useful for
+    /// callers storing `UrnSlice<'static>` who don't want to go through the [`Urn`] newtype.
+    ///
+    /// # Errors
+    ///
+    /// In case of a validation failure, returns an error specifying the component that failed
+    /// validation
+    pub fn build_slice(self) -> Result<UrnSlice<'static>> {
+        self.build_inner()
+    }
+
+    fn build_inner(self) -> Result<UrnSlice<'static>> {
+        let nid_has_upper = check_nid(self.nid)?;
+        if self.nss.is_empty() {
+            return Err(Error::InvalidNss);
+        }
+
+        // Validate each component on the input slices, so we never allocate a buffer
+        // for a URN that would be rejected.
+        let (nss_end_in, nss_needs_norm) = validate_nss(self.nss);
+        if nss_end_in != self.nss.len() {
+            return Err(Error::InvalidNss);
+        }
+        let rc_needs_norm = if let Some(rc) = self.r_component {
+            let (end, needs_norm) = validate_r_component(rc);
+            if rc.is_empty() || end != rc.len() {
+                return Err(Error::InvalidRComponent);
+            }
+            needs_norm
+        } else {
+            false
+        };
+        let qc_needs_norm = if let Some(qc) = self.q_component {
+            let (end, needs_norm) = validate_q_component(qc);
+            if qc.is_empty() || end != qc.len() {
+                return Err(Error::InvalidQComponent);
+            }
+            needs_norm
+        } else {
+            false
+        };
+        let fc_needs_norm = if let Some(fc) = self.f_component {
+            let (end, needs_norm) = validate_f_component(fc);
+            if end != fc.len() {
+                return Err(Error::InvalidFComponent);
+            }
+            needs_norm
+        } else {
+            false
+        };
+
+        let total = URN_PREFIX.len()
+            + self.nid.len()
+            + NID_NSS_SEPARATOR.len()
+            + self.nss.len()
+            + self.r_component.map_or(0, |x| RCOMP_PREFIX.len() + x.len())
+            + self.q_component.map_or(0, |x| QCOMP_PREFIX.len() + x.len())
+            + self.f_component.map_or(0, |x| FCOMP_PREFIX.len() + x.len());
+        let mut buf = String::with_capacity(total);
+        buf.push_str(URN_PREFIX);
+        let nid_start = buf.len();
+        buf.push_str(self.nid);
+        let nid_end = buf.len();
+        buf.push_str(NID_NSS_SEPARATOR);
+        let nss_start = buf.len();
+        buf.push_str(self.nss);
+        let nss_end = buf.len();
+
+        let rc_range = self.r_component.map(|rc| {
+            buf.push_str(RCOMP_PREFIX);
+            let start = buf.len();
+            buf.push_str(rc);
+            start..buf.len()
+        });
+        let qc_range = self.q_component.map(|qc| {
+            buf.push_str(QCOMP_PREFIX);
+            let start = buf.len();
+            buf.push_str(qc);
+            start..buf.len()
+        });
+        let fc_range = self.f_component.map(|fc| {
+            buf.push_str(FCOMP_PREFIX);
+            let start = buf.len();
+            buf.push_str(fc);
+            start..buf.len()
+        });
+
+        let mut s = TriCow::Owned(buf);
+        // Parsing lowercases the NID, so the builder must too, or the two give unequal URNs.
+        if nid_has_upper {
+            s.make_lowercase(nid_start..nid_end)?;
+        }
+        for (range, needs_norm) in [
+            (Some(nss_start..nss_end), nss_needs_norm),
+            (rc_range, rc_needs_norm),
+            (qc_range, qc_needs_norm),
+            (fc_range, fc_needs_norm),
+        ] {
+            if let Some(range) = range.filter(|_| needs_norm) {
+                normalize_range(&mut s, range)?;
+            }
+        }
+        // NID length range is 2..=32 bytes, so it always fits into non-zero u8.
+        let nid_len = u8::try_from(self.nid.len()).ok().and_then(NonZeroU8::new).ok_or(Error::InvalidNid)?;
+        // NSS length is non-zero as checked above.
+        let nss_len = u32::try_from(self.nss.len()).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidNss)?;
+        let r_component_len = self
+            .r_component
+            .map(|x| u32::try_from(x.len()).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidRComponent))
+            .transpose()?;
+        let q_component_len = self
+            .q_component
+            .map(|x| u32::try_from(x.len()).ok().and_then(NonZeroU32::new).ok_or(Error::InvalidQComponent))
+            .transpose()?;
+        Ok(UrnSlice {
+            // we already had to allocate since we use a builder, obviously allocations are allowed
+            urn: s,
+            nid_len,
+            nss_len,
+            r_component_len,
+            q_component_len,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(feature = "std"))]
+    use super::alloc::{
+        format,
+        string::{String, ToString},
+    };
+    #[cfg(all(not(feature = "std"), feature = "alloc"))]
+    use super::alloc::{vec, vec::Vec};
+
+    #[test]
+    #[expect(clippy::too_many_lines, reason = "flat list of parse and build cases")]
+    fn it_works() {
+        UrnSlice::try_from("6򭞦*�").unwrap_err();
+        #[cfg(feature = "alloc")]
+        assert_eq!(
+            UrnSlice::try_from("urn:nbn:de:bvb:19-146642").unwrap(),
+            UrnBuilder::new("nbn", "de:bvb:19-146642").build().unwrap()
+        );
+        assert_eq!(UrnSlice::try_from("urn:nbn:de:bvb:19-146642").unwrap().to_string(), "urn:nbn:de:bvb:19-146642");
+
+        #[cfg(feature = "alloc")]
+        assert_eq!(
+            UrnSlice::try_from("urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test").unwrap(),
+            UrnBuilder::new("example", "foo-bar-baz-qux")
+                .r_component(Some("CCResolve:cc=uk"))
+                .f_component(Some("test"))
+                .build()
+                .unwrap()
+        );
+        assert_eq!(
+            UrnSlice::try_from("urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test")
+                .unwrap()
+                .f_component()
+                .unwrap(),
+            "test"
+        );
+        assert_eq!(
+            UrnSlice::try_from("urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test")
+                .unwrap()
+                .r_component()
+                .unwrap(),
+            "CCResolve:cc=uk"
+        );
+        assert_eq!(
+            UrnSlice::try_from("urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test").unwrap().to_string(),
+            "urn:example:foo-bar-baz-qux?+CCResolve:cc=uk#test",
+        );
+
+        #[cfg(feature = "alloc")]
+        assert_eq!(
+            "urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"
+                .parse::<UrnSlice>()
+                .unwrap(),
+            UrnBuilder::new("example", "weather")
+                .q_component(Some("op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"))
+                .build()
+                .unwrap()
+        );
+        assert_eq!(
+            UrnSlice::try_from("urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z")
+                .unwrap()
+                .to_string(),
+            "urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z"
+        );
+
+        // This equality relies on q-component being excluded from eq (RFC 8141 §3).
+        // With `exact-eq`, the q-component participates in eq, so the assertion no longer holds.
+        #[cfg(all(feature = "alloc", not(feature = "exact-eq")))]
+        assert_eq!(
+            "uRn:eXaMpLe:%3d%3a?=aoiwnfuafo".parse::<UrnSlice>().unwrap(),
+            UrnBuilder::new("example", "%3D%3a").build().unwrap()
+        );
+        let mut arr = *b"uRn:eXaMpLe:%3d%3a?=aoiwnfuafo";
+        assert_eq!(
+            UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()).unwrap().as_str(),
+            "urn:example:%3D%3A?=aoiwnfuafo",
+        );
+
+        assert_eq!(UrnSlice::try_from("urn:-example:abcd"), Err(Error::InvalidNid));
+        assert_eq!(UrnSlice::try_from("urn:example:/abcd"), Err(Error::InvalidNss));
+        assert_eq!(UrnSlice::try_from("urn:a:abcd"), Err(Error::InvalidNid));
+        assert_eq!(UrnSlice::try_from("urn:0123456789abcdef0123456789abcdef0:abcd"), Err(Error::InvalidNid));
+        let _ = UrnSlice::try_from("urn:0123456789abcdef0123456789abcdef:abcd").unwrap();
+        assert_eq!(UrnSlice::try_from("urn:example"), Err(Error::InvalidNss));
+        assert_eq!(UrnSlice::try_from("urn:example:"), Err(Error::InvalidNss));
+        assert_eq!(UrnSlice::try_from("urn:example:%"), Err(Error::InvalidNss));
+        assert_eq!(UrnSlice::try_from("urn:example:%a"), Err(Error::InvalidNss));
+        assert_eq!(UrnSlice::try_from("urn:example:%a_"), Err(Error::InvalidNss));
+        let mut arr = *b"urn:example:%a0?+";
+        assert_eq!(UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()), Err(Error::InvalidRComponent));
+        let mut arr = *b"urn:example:%a0?+%a0?=";
+        assert_eq!(UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()), Err(Error::InvalidQComponent));
+        let mut arr = *b"urn:example:%a0?+%a0?=a";
+        assert_eq!(
+            UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()).unwrap().r_component().unwrap(),
+            "%A0",
+        );
+
+        #[cfg(feature = "alloc")]
+        {
+            let mut urn = "urn:example:test".parse::<UrnSlice>().unwrap();
+            urn.set_f_component(Some("f-component")).unwrap();
+            assert_eq!(urn.f_component(), Some("f-component"));
+            assert_eq!(urn.as_str(), "urn:example:test#f-component");
+            urn.set_f_component(Some("")).unwrap();
+            assert_eq!(urn.f_component(), Some(""));
+            assert_eq!(urn.as_str(), "urn:example:test#");
+            urn.set_q_component(Some("abcd")).unwrap();
+            assert_eq!(urn.q_component(), Some("abcd"));
+            assert_eq!(urn.as_str(), "urn:example:test?=abcd#");
+            assert!(urn.set_q_component(Some("")).is_err());
+            urn.set_r_component(Some("%2a")).unwrap();
+            assert_eq!(urn.r_component(), Some("%2A"));
+            assert_eq!(urn.as_str(), "urn:example:test?+%2A?=abcd#");
+            urn.set_nid("a-b").unwrap();
+            assert_eq!(urn.as_str(), "urn:a-b:test?+%2A?=abcd#");
+            urn.set_r_component(None).unwrap();
+            assert_eq!(urn.as_str(), "urn:a-b:test?=abcd#");
+            assert_eq!(urn.r_component(), None);
+        }
+    }
+
+    /// Zero-copy `&mut str` parse must mutate in place without heap-allocating;
+    /// the resulting `UrnSlice` must point at the original buffer.
+    #[test]
+    fn mut_str_normalizes_in_place() {
+        let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
+        let buf_ptr = buf.as_ptr();
+        let s = str::from_utf8_mut(&mut buf[..]).unwrap();
+        let urn = UrnSlice::try_from(s).unwrap();
+        assert_eq!(urn.as_str().as_ptr(), buf_ptr);
+        assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
+    }
+
+    #[cfg(all(feature = "alloc", not(feature = "exact-eq")))]
+    #[test]
+    fn ord_matches_eq() {
+        use core::cmp::Ordering;
+        let a = UrnSlice::try_from("urn:example:abc").unwrap();
+        let b = UrnSlice::try_from("urn:example:abd").unwrap();
+        let c = UrnSlice::try_from("urn:example:abc?=q").unwrap(); // q-component excluded from cmp
+        assert_eq!(a.cmp(&b), Ordering::Less);
+        assert_eq!(b.cmp(&a), Ordering::Greater);
+        assert_eq!(a.cmp(&c), Ordering::Equal);
+        assert_eq!(a, c);
+        // Urn delegates
+        let ao = Urn::try_from("urn:example:abc").unwrap();
+        let bo = Urn::try_from("urn:example:abd").unwrap();
+        assert!(ao < bo);
+    }
+
+    #[cfg(all(feature = "alloc", feature = "exact-eq"))]
+    #[test]
+    #[expect(clippy::many_single_char_names, reason = "a..e name interchangeable sample URNs")]
+    fn exact_eq_includes_rqf() {
+        use core::cmp::Ordering;
+        #[cfg(feature = "std")]
+        use core::hash::BuildHasher;
+        #[cfg(feature = "std")]
+        use std::collections::hash_map::RandomState;
+
+        let a = UrnSlice::try_from("urn:example:abc").unwrap();
+        let b = UrnSlice::try_from("urn:example:abc?=q").unwrap();
+        let c = UrnSlice::try_from("urn:example:abc?=q").unwrap();
+        let d = UrnSlice::try_from("urn:example:abc#frag").unwrap();
+        let e = UrnSlice::try_from("urn:example:abc?+r").unwrap();
+
+        // r/q/f now affect equality & ordering.
+        assert_ne!(a, b);
+        assert_ne!(a, d);
+        assert_ne!(a, e);
+        assert_ne!(b, d);
+        assert_eq!(b, c);
+        assert_eq!(a.cmp(&b), Ordering::Less);
+
+        // Hash/Eq contract: equal values hash identically.
+        #[cfg(feature = "std")]
+        {
+            let rs = RandomState::new();
+            assert_eq!(rs.hash_one(&b), rs.hash_one(&c));
+            assert_ne!(rs.hash_one(&a), rs.hash_one(&b));
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_iter_matches_decode() {
+        use crate::percent::{decode_nss, decode_nss_iter};
+        let input = "hello%20world%21";
+        let via_iter: Result<Vec<u8>, _> = decode_nss_iter(input).collect();
+        assert_eq!(via_iter.unwrap(), decode_nss(input).unwrap().into_bytes());
+
+        // Validation error surfaces via iterator.
+        let bad = "%zz";
+        let res: Result<Vec<u8>, _> = decode_nss_iter(bad).collect();
+        assert_eq!(res, Err(Error::InvalidNss));
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn decode_rejects_empty_required_components() {
+        use crate::percent::{
+            decode_f_component,
+            decode_f_component_iter,
+            decode_nss,
+            decode_nss_iter,
+            decode_q_component,
+            decode_q_component_iter,
+            decode_r_component,
+            decode_r_component_iter,
+        };
+        assert_eq!(decode_nss(""), Err(Error::InvalidNss));
+        assert_eq!(decode_r_component(""), Err(Error::InvalidRComponent));
+        assert_eq!(decode_q_component(""), Err(Error::InvalidQComponent));
+        assert_eq!(decode_f_component(""), Ok(String::new()));
+        assert_eq!(decode_nss_iter("").collect::<Result<Vec<u8>>>(), Err(Error::InvalidNss));
+        assert_eq!(decode_r_component_iter("").collect::<Result<Vec<u8>>>(), Err(Error::InvalidRComponent));
+        assert_eq!(decode_q_component_iter("").collect::<Result<Vec<u8>>>(), Err(Error::InvalidQComponent));
+        assert_eq!(decode_f_component_iter("").collect::<Result<Vec<u8>>>(), Ok(Vec::new()));
+        // The error is yielded once, then the iterator ends.
+        let mut iter = decode_nss_iter("");
+        assert_eq!(iter.next(), Some(Err(Error::InvalidNss)));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn byte_slice_try_from_roundtrip() {
+        let bytes: &[u8] = b"urn:example:foo";
+        let urn = UrnSlice::try_from(bytes).unwrap();
+        assert_eq!(urn.as_str(), "urn:example:foo");
+
+        // invalid UTF-8 rejected
+        let bad: &[u8] = &[0xFFu8, b'u', b'r', b'n'];
+        assert_eq!(UrnSlice::try_from(bad).unwrap_err(), Error::InvalidUtf8);
+    }
+
+    #[test]
+    fn mut_byte_slice_normalizes_in_place() {
+        let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
+        let buf_ptr = buf.as_ptr();
+        let urn = UrnSlice::try_from(&mut buf[..]).unwrap();
+        assert_eq!(urn.as_str().as_ptr(), buf_ptr);
+        assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn vec_try_from_roundtrip() {
+        let v: Vec<u8> = b"urn:example:foo".to_vec();
+        let urn = UrnSlice::try_from(v).unwrap();
+        assert_eq!(urn.as_str(), "urn:example:foo");
+
+        let bad: Vec<u8> = vec![0xFFu8];
+        assert_eq!(UrnSlice::try_from(bad).unwrap_err(), Error::InvalidUtf8);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn build_slice_matches_build() {
+        let a = UrnBuilder::new("example", "1234:5678").build_slice().unwrap();
+        let b = UrnBuilder::new("example", "1234:5678").build().unwrap();
+        assert_eq!(a.as_str(), b.as_str());
+        assert_eq!(a.as_str(), "urn:example:1234:5678");
+    }
+
+    #[test]
+    fn from_static_normalized_borrows() {
+        // Normalized input → parser stays on Borrowed path (zero-alloc).
+        let s: &'static str = "urn:example:foo";
+        let urn = UrnSlice::from_static(s).unwrap();
+        // Same allocation: as_str() pointer equals the static string pointer.
+        assert_eq!(urn.as_str().as_ptr(), s.as_ptr());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn from_static_denormalized_still_ok() {
+        // Denormalized: parser promotes to Owned, still yields normalized output.
+        let urn = UrnSlice::from_static("uRn:eXaMpLe:%3d%3a").unwrap();
+        assert_eq!(urn.as_str(), "urn:example:%3D%3A");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn encode_iter_matches_encode() {
+        use crate::percent::{
+            encode_f_component,
+            encode_f_component_iter,
+            encode_nss,
+            encode_nss_iter,
+            encode_q_component,
+            encode_q_component_iter,
+            encode_r_component,
+            encode_r_component_iter,
+        };
+        let input = "hello world!😂";
+
+        let via_iter: Vec<u8> = encode_nss_iter(input).collect();
+        assert_eq!(via_iter, encode_nss(input).unwrap().into_bytes());
+
+        let via_iter: Vec<u8> = encode_r_component_iter(input).collect();
+        assert_eq!(via_iter, encode_r_component(input).unwrap().into_bytes());
+
+        let via_iter: Vec<u8> = encode_q_component_iter(input).collect();
+        assert_eq!(via_iter, encode_q_component(input).unwrap().into_bytes());
+
+        let via_iter: Vec<u8> = encode_f_component_iter(input).collect();
+        assert_eq!(via_iter, encode_f_component(input).unwrap().into_bytes());
+
+        // Context-dependent handling: leading '?' in r-component must be encoded;
+        // non-leading '?' (when not followed by '=') passes through.
+        let r = encode_r_component_iter("?x").collect::<Vec<u8>>();
+        assert_eq!(r, encode_r_component("?x").unwrap().into_bytes());
+        let r = encode_r_component_iter("x?y").collect::<Vec<u8>>();
+        assert_eq!(r, encode_r_component("x?y").unwrap().into_bytes());
+    }
+
+    #[test]
+    fn nid_trailing_hyphen_rejected() {
+        assert_eq!(UrnSlice::try_from("urn:ab-:x").unwrap_err(), Error::InvalidNid);
+        // With no NSS separator, a NID-shaped prefix ending in '-' is still a NID error.
+        assert_eq!(UrnSlice::try_from("urn:ab-").unwrap_err(), Error::InvalidNid);
+        assert_eq!(UrnSlice::try_from("urn:a-b:x").unwrap().nid(), "a-b");
+
+        let mut buf = *b"urn:ab:x";
+        let mut urn = UrnSlice::try_from(&mut buf[..]).unwrap();
+        assert_eq!(urn.set_nid("cd-"), Err(Error::InvalidNid));
+        assert_eq!(urn.as_str(), "urn:ab:x", "a rejected set_nid leaves the URN unchanged");
+
+        #[cfg(feature = "alloc")]
+        assert_eq!(UrnBuilder::new("ab-", "x").build().unwrap_err(), Error::InvalidNid);
+    }
+
+    #[test]
+    fn nid_urn_reserved() {
+        for input in ["urn:urn:x", "urn:URN:x", "URN:Urn:x"] {
+            // Parse a mutable copy so the mixed-case inputs need no allocation without `alloc`.
+            let mut buf = [0u8; 9];
+            buf.copy_from_slice(input.as_bytes());
+            assert_eq!(UrnSlice::try_from(&mut buf[..]).unwrap_err(), Error::InvalidNid, "{input}");
+        }
+        // With no NSS separator, the reserved NID is still a NID error.
+        assert_eq!(UrnSlice::try_from("urn:urn").unwrap_err(), Error::InvalidNid);
+        // Only the exact NID is reserved.
+        for (input, nid) in [("urn:urna:x", "urna"), ("urn:urn-1:x", "urn-1"), ("urn:ur:x", "ur")] {
+            assert_eq!(UrnSlice::try_from(input).unwrap().nid(), nid);
+        }
+
+        let mut buf = *b"urn:ab:x";
+        let mut urn = UrnSlice::try_from(&mut buf[..]).unwrap();
+        assert_eq!(urn.set_nid("uRn"), Err(Error::InvalidNid));
+        assert_eq!(urn.as_str(), "urn:ab:x", "a rejected set_nid leaves the URN unchanged");
+
+        #[cfg(feature = "alloc")]
+        assert_eq!(UrnBuilder::new("URN", "x").build().unwrap_err(), Error::InvalidNid);
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn builder_lowercases_nid() {
+        let built = UrnBuilder::new("A0", "A").build().unwrap();
+        assert_eq!(built.as_str(), "urn:a0:A");
+        assert_eq!(built.nid(), "a0");
+        assert_eq!(built, "urn:A0:A".parse::<Urn>().unwrap());
+        assert_eq!(UrnBuilder::new("Ex-NID", "x").build_slice().unwrap().as_str(), "urn:ex-nid:x");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn clone_slice() {
+        // Borrowed: clone shares the original buffer and keeps component boundaries.
+        let src = "urn:example:a?+r?=q#f";
+        let borrowed = UrnSlice::try_from(src).unwrap();
+        let cloned = borrowed.clone();
+        assert!(matches!(cloned.urn, TriCow::Borrowed(_)));
+        assert_eq!(cloned.as_str().as_ptr(), src.as_ptr());
+        assert_eq!(cloned.as_str(), src);
+        assert_eq!(cloned.r_component(), Some("r"));
+        assert_eq!(cloned.q_component(), Some("q"));
+        assert_eq!(cloned.f_component(), Some("f"));
+
+        // Mutating a clone leaves the original untouched.
+        let mut edited = borrowed.clone();
+        edited.set_nss("b").unwrap();
+        assert_eq!(edited.as_str(), "urn:example:b?+r?=q#f");
+        assert_eq!(borrowed.as_str(), src);
+
+        // MutBorrowed: clone owns a normalized copy; the original borrow stays valid.
+        let mut buf = String::from("URN:EXAMPLE:a%2f");
+        let mut_borrowed = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+        let cloned = mut_borrowed.clone();
+        assert!(matches!(cloned.urn, TriCow::Owned(_)));
+        assert_eq!(cloned.as_str(), "urn:example:a%2F");
+        assert_eq!(cloned, mut_borrowed);
+        drop(mut_borrowed);
+        assert_eq!(buf, "urn:example:a%2F");
+
+        // Owned: clone gets its own buffer.
+        let owned = UrnSlice::try_from(String::from("urn:example:x")).unwrap();
+        let cloned = owned.clone();
+        assert_ne!(cloned.as_str().as_ptr(), owned.as_str().as_ptr());
+        assert_eq!(cloned.as_str(), owned.as_str());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn into_owned_and_into_string() {
+        // Borrowed slice outlives its input once converted.
+        let urn = {
+            let input = String::from("URN:Example:a?+r?=q#f");
+            UrnSlice::try_from(input.as_str()).unwrap().into_owned()
+        };
+        assert_eq!(urn.as_str(), "urn:example:a?+r?=q#f");
+        assert_eq!(urn.r_component(), Some("r"));
+        assert_eq!(urn.q_component(), Some("q"));
+        assert_eq!(urn.f_component(), Some("f"));
+
+        // Owned slice: into_owned and into_string move the buffer instead of copying.
+        let slice = UrnSlice::try_from(String::from("urn:example:x")).unwrap();
+        let ptr = slice.as_str().as_ptr();
+        let urn = slice.into_owned();
+        assert_eq!(urn.as_str().as_ptr(), ptr);
+        let s = urn.into_string();
+        assert_eq!(s.as_ptr(), ptr);
+        assert_eq!(s, "urn:example:x");
+
+        // From<Urn> for String.
+        let s: String = Urn::try_from("urn:example:y").unwrap().into();
+        assert_eq!(s, "urn:example:y");
+
+        // A Urn holding a borrowed 'static slice (assigned through DerefMut) still converts.
+        let mut urn = Urn::try_from("urn:example:z").unwrap();
+        *urn = UrnSlice::from_static("urn:example:w").unwrap();
+        assert_eq!(urn.into_string(), "urn:example:w");
+    }
+
+    #[test]
+    fn debug_and_as_ref_bytes() {
+        let urn = UrnSlice::from_static("urn:example:a").unwrap();
+        assert_eq!(format!("{urn:?}"), "UrnSlice(urn:example:a)");
+        assert_eq!(AsRef::<[u8]>::as_ref(&urn), b"urn:example:a");
+        #[cfg(feature = "alloc")]
+        {
+            let owned = urn.into_owned();
+            assert_eq!(format!("{owned:?}"), "Urn(urn:example:a)");
+            assert_eq!(AsRef::<[u8]>::as_ref(&owned), b"urn:example:a");
+        }
+    }
+
+    /// Values just outside a component's grammar: a cut-off or non-hex `%` triplet, or (except in
+    /// the f-component) a leading `?` or `/`.
+    const NEAR_MISSES: [&str; 8] = ["a%", "a%4", "a%A", "%gA", "%Ag", "a%Ag", "?a", "/a"];
+
+    /// The builder and the setters validate a component on their own (without the parser), so
+    /// they must reject the same near misses the parser does.
+    #[test]
+    fn builder_and_setters_reject_near_misses() {
+        for bad in NEAR_MISSES {
+            let f_valid = bad.starts_with(['?', '/']);
+            let mut buf = String::from("urn:example:nss?+r?=q#f");
+            let mut urn = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+            assert_eq!(urn.set_nss(bad), Err(Error::InvalidNss), "{bad:?}");
+            assert_eq!(urn.set_r_component(Some(bad)), Err(Error::InvalidRComponent), "{bad:?}");
+            assert_eq!(urn.set_q_component(Some(bad)), Err(Error::InvalidQComponent), "{bad:?}");
+            if !f_valid {
+                assert_eq!(urn.set_f_component(Some(bad)), Err(Error::InvalidFComponent), "{bad:?}");
+            }
+            assert_eq!(urn.as_str(), "urn:example:nss?+r?=q#f");
+
+            #[cfg(feature = "alloc")]
+            {
+                assert_eq!(UrnBuilder::new("example", bad).build(), Err(Error::InvalidNss), "{bad:?}");
+                let builder = || UrnBuilder::new("example", "nss");
+                assert_eq!(builder().r_component(Some(bad)).build(), Err(Error::InvalidRComponent), "{bad:?}");
+                assert_eq!(builder().q_component(Some(bad)).build(), Err(Error::InvalidQComponent), "{bad:?}");
+                let f = builder().f_component(Some(bad)).build();
+                if f_valid {
+                    assert_eq!(f.map(Urn::into_string), Ok(format!("urn:example:nss#{bad}")));
+                } else {
+                    assert_eq!(f, Err(Error::InvalidFComponent), "{bad:?}");
+                }
+            }
+        }
+    }
+
+    /// `?=` inside an r-component would start the q-component, so the builder and the setter
+    /// reject it.
+    #[test]
+    fn r_component_rejects_q_prefix() {
+        let mut buf = String::from("urn:example:nss?+r");
+        let mut urn = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+        assert_eq!(urn.set_r_component(Some("a?=b")), Err(Error::InvalidRComponent));
+        assert_eq!(urn.as_str(), "urn:example:nss?+r");
+        #[cfg(feature = "alloc")]
+        assert_eq!(
+            UrnBuilder::new("example", "nss").r_component(Some("a?=b")).build(),
+            Err(Error::InvalidRComponent)
+        );
+    }
+
+    /// A setter uppercases the hex digits it is given, in place when the value is as long as the
+    /// one it replaces (without `alloc`, the only way a setter can work). Covers a triplet after
+    /// a plain character, and triplets where only the first or only the second digit is
+    /// lowercase.
+    #[test]
+    fn setters_normalize_hex_in_place() {
+        let mut buf = String::from("urn:example:abcdef?+abcdef?=abcdef#abcdef");
+        let mut urn = UrnSlice::try_from(buf.as_mut_str()).unwrap();
+        urn.set_nss("%aB%cD").unwrap();
+        urn.set_r_component(Some("x%ab..")).unwrap();
+        urn.set_q_component(Some("%e9%F0")).unwrap();
+        urn.set_f_component(Some("%0a%Bc")).unwrap();
+        assert_eq!(urn.as_str(), "urn:example:%AB%CD?+x%AB..?=%E9%F0#%0A%BC");
+        assert_eq!(urn.nss(), "%AB%CD");
+        assert_eq!(urn.f_component(), Some("%0A%BC"));
+        // Written into the caller's buffer, not into a copy.
+        assert_eq!(buf, "urn:example:%AB%CD?+x%AB..?=%E9%F0#%0A%BC");
+    }
+
+    /// Setters that change the length, add or remove a component, or lowercase the NID.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn setters_resize_and_remove() {
+        let mut urn = UrnSlice::try_from("urn:ab:XYZXYZXYZ?+r?=q#f").unwrap();
+        urn.set_nid("CDE").unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ?+r?=q#f");
+        urn.set_q_component(None).unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ?+r#f");
+        urn.set_f_component(None).unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ?+r");
+        urn.set_r_component(None).unwrap();
+        assert_eq!(urn.as_str(), "urn:cde:XYZXYZXYZ");
+        assert_eq!((urn.r_component(), urn.q_component(), urn.f_component()), (None, None, None));
+    }
+
+    /// The cross-type comparisons and the `str` views of both types.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn urn_and_slice_compare() {
+        let a = UrnSlice::try_from("urn:example:a").unwrap();
+        let b = UrnSlice::try_from("urn:example:b").unwrap();
+        let (owned_a, owned_b) = (Urn::from(&a), Urn::from(&b));
+        assert_eq!(a, owned_a);
+        assert_eq!(owned_a, a);
+        assert_ne!(a, owned_b);
+        assert_ne!(owned_b, a);
+        assert_eq!(owned_a.partial_cmp(&owned_b), Some(Ordering::Less));
+        assert_eq!(AsRef::<str>::as_ref(&a), "urn:example:a");
+        assert_eq!(AsRef::<str>::as_ref(&owned_b), "urn:example:b");
+    }
+
+    /// Exact encoder output: which characters each component leaves alone, where `?` and `/`
+    /// may appear, how multi-byte characters are encoded, and every hex digit.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn encode_exact_output() {
+        use crate::percent::{
+            encode_f_component,
+            encode_f_component_iter,
+            encode_nss,
+            encode_nss_iter,
+            encode_q_component,
+            encode_q_component_iter,
+            encode_r_component,
+            encode_r_component_iter,
+        };
+        type Encoders = (fn(&str) -> Result<String>, fn(&str) -> percent::EncodeIter<'_>);
+        let nss: Encoders = (encode_nss, encode_nss_iter);
+        let r: Encoders = (encode_r_component, encode_r_component_iter);
+        let q: Encoders = (encode_q_component, encode_q_component_iter);
+        let f: Encoders = (encode_f_component, encode_f_component_iter);
+        let plain = "AZaz09-._!$'()*+,;=:@";
+        let cases: &[(Encoders, &str, &str)] = &[
+            (nss, plain, plain),
+            (r, plain, plain),
+            (nss, "a&b~/?", "a%26b%7E%2F%3F"),
+            (r, "a&b~/?", "a&b%7E/?"),
+            (r, "?a?=b/", "%3Fa%3F=b/"),
+            (q, "?a?=b/", "%3Fa?=b/"),
+            (q, "/a", "%2Fa"),
+            (f, "?a?=b/", "?a?=b/"),
+            (f, "/a", "/a"),
+            (nss, "é@éa", "%C3%A9@%C3%A9a"),
+            (
+                nss,
+                "\n\u{4}\u{16}\u{1f} \"^\u{7f}ÿÝ€😀",
+                "%0A%04%16%1F%20%22%5E%7F%C3%BF%C3%9D%E2%82%AC%F0%9F%98%80",
+            ),
+        ];
+        for &((encode, encode_iter), input, want) in cases {
+            assert_eq!(encode(input).as_deref(), Ok(want), "{input:?}");
+            assert_eq!(encode_iter(input).collect::<Vec<u8>>(), want.as_bytes(), "{input:?}");
+        }
+    }
+
+    /// Exact decoder verdicts for `?` and `/` in each component, and hex digits in both cases.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_exact_output() {
+        use crate::percent::{
+            decode_f_component,
+            decode_f_component_iter,
+            decode_nss,
+            decode_nss_iter,
+            decode_q_component,
+            decode_q_component_iter,
+            decode_r_component,
+            decode_r_component_iter,
+        };
+        type Decoders = (fn(&str) -> Result<String>, fn(&str) -> percent::DecodeIter<'_>);
+        let nss: Decoders = (decode_nss, decode_nss_iter);
+        let r: Decoders = (decode_r_component, decode_r_component_iter);
+        let q: Decoders = (decode_q_component, decode_q_component_iter);
+        let f: Decoders = (decode_f_component, decode_f_component_iter);
+        let cases: &[(Decoders, &str, Option<&str>)] = &[
+            (nss, "a/b", Some("a/b")),
+            (nss, "/a", None),
+            (nss, "a?b", None),
+            (r, "a?b/c", Some("a?b/c")),
+            (r, "?a", None),
+            (r, "/a", None),
+            (r, "a?=b", None),
+            (q, "a?=b/c", Some("a?=b/c")),
+            (q, "?a", None),
+            (q, "/a", None),
+            (f, "?/a?=b", Some("?/a?=b")),
+        ];
+        for &((decode, decode_iter), input, want) in cases {
+            let got = decode(input);
+            assert_eq!(got.as_deref().ok(), want, "{input:?}");
+            let bytes = decode_iter(input).collect::<Result<Vec<u8>>>();
+            assert_eq!(bytes.ok().as_deref(), want.map(str::as_bytes), "{input:?} iter");
+        }
+        let bytes = decode_f_component_iter("%AF%af%4A%0f").collect::<Result<Vec<u8>>>();
+        assert_eq!(bytes, Ok(vec![0xAF, 0xAF, 0x4A, 0x0F]));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_rejects_non_hex_triplets() {
+        use crate::percent::{decode_f_component, decode_f_component_iter};
+        for bad in ["%gA", "%Ag", "a%gg", "a%4"] {
+            assert_eq!(decode_f_component(bad), Err(Error::InvalidFComponent), "{bad:?}");
+            assert!(decode_f_component_iter(bad).any(|b| b.is_err()), "{bad:?}");
+        }
+        assert_eq!(decode_f_component("%41%4a"), Ok(String::from("AJ")));
+    }
+
+    #[test]
+    fn q_pairs_split() -> Result<()> {
+        type Pairs<'a> = &'a [(&'a str, Option<&'a str>)];
+        let cases: &[(&str, Pairs<'_>)] = &[
+            ("urn:example:nss", &[]),
+            ("urn:example:nss?+r", &[]),
+            ("urn:example:nss?=a", &[("a", None)]),
+            ("urn:example:nss?=a=", &[("a", Some(""))]),
+            ("urn:example:nss?==b", &[("", Some("b"))]),
+            ("urn:example:nss?=a=b=c&d", &[("a", Some("b=c")), ("d", None)]),
+            ("urn:example:nss?=&&a=1&&b=2&", &[("a", Some("1")), ("b", Some("2"))]),
+            ("urn:example:nss?=&", &[]),
+            ("urn:example:nss?=a=x+y%2B&p=/q?r#f", &[("a", Some("x+y%2B")), ("p", Some("/q?r"))]),
+        ];
+        for &(urn, want) in cases {
+            let urn = UrnSlice::try_from(urn)?;
+            assert!(urn.q_pairs().eq(want.iter().copied()), "{urn}");
+            assert!(urn.q_pairs().rev().eq(want.iter().rev().copied()), "{urn} rev");
+        }
+        let urn = UrnSlice::try_from("urn:example:nss?=a&b&c")?;
+        let mut pairs = urn.q_pairs();
+        assert_eq!(pairs.next(), Some(("a", None)));
+        assert_eq!(pairs.next_back(), Some(("c", None)));
+        assert_eq!(pairs.next(), Some(("b", None)));
+        assert_eq!(pairs.next_back(), None);
+        assert_eq!(pairs.next(), None);
+        Ok(())
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn decode_q_param_accepts_pair_positions() {
+        use crate::percent::decode_q_param;
+        for (input, want) in [("", ""), ("/a", "/a"), ("?a", "?a"), ("a%3D%26b", "a=&b"), ("caf%C3%A9", "caf\u{e9}")] {
+            assert_eq!(decode_q_param(input).as_deref(), Ok(want), "{input:?}");
+        }
+        for bad in ["a#b", "a%4", "%gg", "%FF", "a b"] {
+            assert_eq!(decode_q_param(bad), Err(Error::InvalidQComponent), "{bad:?}");
+        }
+    }
+}

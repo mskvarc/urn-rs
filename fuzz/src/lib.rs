@@ -5,7 +5,7 @@
 //! The fuzz crate always links `std`; only the urn-rs calls are limited by the feature set, which
 //! mirrors the urn-rs features (`--no-default-features` fuzzes the `no_std` build).
 
-#[path = "../../crates/urn-rs/tests/props/reference.rs"]
+#[path = "../../crates/urn-rs-core/tests/props/reference.rs"]
 mod reference;
 
 use std::{cmp::Ordering, collections::hash_map::RandomState, hash::BuildHasher, str};
