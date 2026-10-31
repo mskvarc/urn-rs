@@ -84,9 +84,10 @@ fn is_valid_nid(s: &str) -> bool {
 ///
 /// RFC 8141: `NID = (alphanum) 0*30(ldh) (alphanum)`, so 2 to 32 letters, digits and `-`, not
 /// starting or ending with `-`. RFC 2141 allowed a trailing `-`; RFC 8141 Appendix B removed it.
+/// RFC 2141 §2 also reserves the NID `urn` (in any case), which RFC 8141 never released.
 fn check_nid(s: &str) -> Result<bool> {
     let bytes = s.as_bytes();
-    if !(2..=32).contains(&bytes.len()) || bytes.starts_with(b"-") || bytes.ends_with(b"-") {
+    if !(2..=32).contains(&bytes.len()) || bytes.starts_with(b"-") || bytes.ends_with(b"-") || bytes.eq_ignore_ascii_case(b"urn") {
         return Err(Error::InvalidNid);
     }
     let mut has_upper = false;
@@ -196,7 +197,7 @@ pub enum Error {
     #[error("invalid urn scheme")]
     InvalidScheme,
     /// The URN has an invalid NID (Namespace ID). A valid NID is 2 to 32 ASCII letters, digits
-    /// and `-`, and doesn't start or end with `-`.
+    /// and `-`, doesn't start or end with `-`, and isn't the reserved NID `urn`.
     #[error("invalid urn nid (namespace id)")]
     InvalidNid,
     /// The URN has an invalid NSS (Namespace-specific string).
@@ -1285,6 +1286,30 @@ mod tests {
 
         #[cfg(feature = "alloc")]
         assert_eq!(UrnBuilder::new("ab-", "x").build().unwrap_err(), Error::InvalidNid);
+    }
+
+    #[test]
+    fn nid_urn_reserved() {
+        for input in ["urn:urn:x", "urn:URN:x", "URN:Urn:x"] {
+            // Parse a mutable copy so the mixed-case inputs need no allocation without `alloc`.
+            let mut buf = [0u8; 9];
+            buf.copy_from_slice(input.as_bytes());
+            assert_eq!(UrnSlice::try_from(&mut buf[..]).unwrap_err(), Error::InvalidNid, "{input}");
+        }
+        // With no NSS separator, the reserved NID is still a NID error.
+        assert_eq!(UrnSlice::try_from("urn:urn").unwrap_err(), Error::InvalidNid);
+        // Only the exact NID is reserved.
+        for (input, nid) in [("urn:urna:x", "urna"), ("urn:urn-1:x", "urn-1"), ("urn:ur:x", "ur")] {
+            assert_eq!(UrnSlice::try_from(input).unwrap().nid(), nid);
+        }
+
+        let mut buf = *b"urn:ab:x";
+        let mut urn = UrnSlice::try_from(&mut buf[..]).unwrap();
+        assert_eq!(urn.set_nid("uRn"), Err(Error::InvalidNid));
+        assert_eq!(urn.as_str(), "urn:ab:x", "a rejected set_nid leaves the URN unchanged");
+
+        #[cfg(feature = "alloc")]
+        assert_eq!(UrnBuilder::new("URN", "x").build().unwrap_err(), Error::InvalidNid);
     }
 
     #[cfg(feature = "alloc")]

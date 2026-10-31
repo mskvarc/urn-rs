@@ -181,7 +181,7 @@ pub(crate) const CASES: &[Invalid] = &[
     bad("urn:mm:?", InvalidNss).src("go-urn tables_test.go:2205"),
     bad("urn:spazio bianco:NSS", InvalidNid).src("go-urn tables_test.go:1395"),
     bad("urn:ss--:nss", InvalidNid).src("RFC 8141 Appendix B: no trailing '-' in NID; go-urn tables_test.go:2070"),
-    bad("urn:urn", InvalidNss).src("gourn urn_test.go:447"),
+    bad("urn:urn", InvalidNid).src("RFC 2141 §2: NID 'urn' is reserved; gourn urn_test.go:447"),
     bad("urn:urn:NSS", InvalidNid).src("RFC 2141 §2: NID 'urn' is reserved; go-urn tables_test.go:1200, gourn urn_test.go:339"),
     bad("urn:urn:user:123", InvalidNid).src("RFC 2141 §2: NID 'urn' is reserved; gourn urn_test.go:415"),
     bad("urn:white space:NSS", InvalidNid).src("go-urn tables_test.go:1247, gourn urn_test.go:351"),
