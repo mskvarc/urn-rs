@@ -1,0 +1,53 @@
+[package]
+name = "urn-rs-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Mirrors the urn-rs features, so `cargo fuzz run <target> --no-default-features` fuzzes the
+# `no_std` build and `--features exact-eq` the whole-URN comparison.
+[features]
+default = ["std"]
+std = ["alloc", "urn-rs/std"]
+alloc = ["urn-rs/alloc"]
+exact-eq = ["urn-rs/exact-eq"]
+
+[dependencies]
+arbitrary = { version = "1.5.0", features = ["derive"] }
+libfuzzer-sys = "0.4.13"
+urn-rs = { path = "..", default-features = false }
+
+# Its own workspace, so the nightly-only fuzz build stays out of the main crate's builds.
+[workspace]
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "percent"
+path = "fuzz_targets/percent.rs"
+test = false
+doc = false
+bench = false
+required-features = ["alloc"]
+
+[[bin]]
+name = "setters"
+path = "fuzz_targets/setters.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "differential"
+path = "fuzz_targets/differential.rs"
+test = false
+doc = false
+bench = false
