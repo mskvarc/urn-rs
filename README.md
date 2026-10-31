@@ -27,7 +27,7 @@ Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/c
 - SWAR fast path and hex lookup tables for percent decode/encode.
 - Fewer allocations in builder, accessors, setters, serde.
 - `Ord` / `PartialOrd` on `Urn` and `UrnSlice`.
-- Criterion bench suite under `benches/`.
+- Criterion bench suite under `crates/urn-rs/benches/`.
 - Rust 2024 edition, MSRV 1.85.
 - Renamed to `urn-rs`.
 
@@ -52,7 +52,7 @@ For `no_std`, disable default features. You get `UrnSlice<'a>` (borrowed, zero-a
 
 ## Compile-time literals
 
-The companion crate [`urn-rs-static`](urn-rs-static/) checks URN literals at compile time:
+The companion crate [`urn-rs-static`](crates/urn-rs-static/) checks URN literals at compile time:
 
 ```sh
 cargo add urn-rs urn-rs-static

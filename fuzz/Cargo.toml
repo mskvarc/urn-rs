@@ -18,7 +18,7 @@ exact-eq = ["urn-rs/exact-eq"]
 [dependencies]
 arbitrary = { version = "1.5.0", features = ["derive"] }
 libfuzzer-sys = "0.4.13"
-urn-rs = { path = "..", default-features = false }
+urn-rs = { path = "../crates/urn-rs", default-features = false }
 
 # Its own workspace, so the nightly-only fuzz build stays out of the main crate's builds.
 [workspace]

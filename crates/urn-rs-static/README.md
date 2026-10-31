@@ -5,7 +5,7 @@
 [![MSRV](https://img.shields.io/crates/msrv/urn-rs-static?style=flat-square)](https://crates.io/crates/urn-rs-static)
 [![License](https://img.shields.io/crates/l/urn-rs-static.svg?style=flat-square)](#license)
 
-Compile-time checked URN literals for [`urn-rs`](../README.md).
+Compile-time checked URN literals for [`urn-rs`](../../README.md).
 
 ```rust
 use urn_rs::UrnSlice;
@@ -41,6 +41,6 @@ Rust 1.85 (edition 2024).
 
 Triple-licensed, at your option:
 
-- [0BSD](../LICENSE-0BSD.md)
-- [MIT](../LICENSE-MIT.md)
-- [Apache-2.0](../LICENSE-APACHE.md)
+- [0BSD](LICENSE-0BSD.md)
+- [MIT](LICENSE-MIT.md)
+- [Apache-2.0](LICENSE-APACHE.md)
