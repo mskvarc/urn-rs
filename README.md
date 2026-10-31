@@ -50,6 +50,23 @@ cargo add urn-rs
 
 For `no_std`, disable default features. You get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for `Urn` and the builder.
 
+## Compile-time literals
+
+The companion crate [`urn-rs-static`](urn-rs-static/) checks URN literals at compile time:
+
+```sh
+cargo add urn-rs urn-rs-static
+```
+
+```rust
+use urn_rs::UrnSlice;
+use urn_rs_static::urn;
+
+const ISBN: UrnSlice<'static> = urn!("urn:isbn:0451450523");
+```
+
+An invalid literal is a compile error, and nothing is parsed at runtime. `UrnSlice::from_static` does the same check at runtime.
+
 ## Equivalence
 
 By default, equality compares only the significant portion of the URN:

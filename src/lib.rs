@@ -289,10 +289,37 @@ impl UrnSlice<'static> {
     /// assert_eq!(u.as_str(), "urn:example:foo");
     /// ```
     ///
+    /// Validation runs at runtime. To check a literal at compile time instead, use the `urn!`
+    /// macro from the `urn-rs-static` crate.
+    ///
     /// # Errors
     /// Returns the component-specific error variant on validation failure.
     pub fn from_static(s: &'static str) -> Result<UrnSlice<'static>> {
         parse_urn(TriCow::Borrowed(s))
+    }
+
+    /// Build a slice from a normalized URN and its component lengths, without validating.
+    ///
+    /// Only for the code `urn-rs-static`'s `urn!` emits, which validates and normalizes the
+    /// literal during macro expansion and calls this inside a `const` block. Not part of the
+    /// public API: it may change in any release.
+    ///
+    /// A length of 0 means the r- or q-component is absent. `nid_len` and `nss_len` must not
+    /// be 0; inside a `const` block, a 0 there fails compilation.
+    #[doc(hidden)]
+    #[must_use]
+    #[expect(clippy::panic, reason = "only evaluated in a const block, where a panic is a compile error")]
+    pub const fn __from_static_parts(urn: &'static str, nid_len: u8, nss_len: u32, r_component_len: u32, q_component_len: u32) -> Self {
+        let (Some(nid_len), Some(nss_len)) = (NonZeroU8::new(nid_len), NonZeroU32::new(nss_len)) else {
+            panic!("urn-rs: NID and NSS lengths must be non-zero");
+        };
+        Self {
+            urn: TriCow::Borrowed(urn),
+            nid_len,
+            nss_len,
+            r_component_len: NonZeroU32::new(r_component_len),
+            q_component_len: NonZeroU32::new(q_component_len),
+        }
     }
 }
 
