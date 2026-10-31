@@ -1,4 +1,5 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+//! Benchmarks for the component setters.
+#![expect(clippy::unwrap_used, reason = "fixtures are known-valid URNs")]
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
@@ -7,6 +8,7 @@ use urn_rs::Urn;
 #[path = "fixtures.rs"]
 mod fixtures;
 
+#[expect(clippy::too_many_lines, reason = "one flat group of setter cases")]
 fn bench_setters(c: &mut Criterion) {
     let mut g = c.benchmark_group("setters");
 
@@ -18,7 +20,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_nss", |b| {
@@ -29,7 +31,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_r_component_add", |b| {
@@ -40,7 +42,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_r_component_remove", |b| {
@@ -51,7 +53,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_q_component_add", |b| {
@@ -62,7 +64,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_f_component_add", |b| {
@@ -73,7 +75,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_r_component_needs_norm", |b| {
@@ -84,7 +86,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_q_component_needs_norm", |b| {
@@ -95,7 +97,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_nss_needs_norm", |b| {
@@ -106,7 +108,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("set_f_component_replace", |b| {
@@ -117,7 +119,7 @@ fn bench_setters(c: &mut Criterion) {
                 black_box(u);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.finish();

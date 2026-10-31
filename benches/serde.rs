@@ -1,4 +1,5 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+//! Benchmarks for serde serialization and deserialization.
+#![expect(clippy::unwrap_used, reason = "fixtures are known-valid URNs")]
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
@@ -23,24 +24,24 @@ fn bench_serde(c: &mut Criterion) {
         let json = serde_json::to_string(&urn).unwrap();
 
         g.bench_function(format!("urn_to_string_{name}"), |b| {
-            b.iter(|| black_box(serde_json::to_string(black_box(&urn)).unwrap()))
+            b.iter(|| black_box(serde_json::to_string(black_box(&urn)).unwrap()));
         });
         g.bench_function(format!("urn_from_str_{name}"), |b| {
             b.iter(|| {
                 let v: Urn = serde_json::from_str(black_box(json.as_str())).unwrap();
                 black_box(v)
-            })
+            });
         });
 
         let slice = UrnSlice::try_from(*s).unwrap();
         g.bench_function(format!("slice_to_string_{name}"), |b| {
-            b.iter(|| black_box(serde_json::to_string(black_box(&slice)).unwrap()))
+            b.iter(|| black_box(serde_json::to_string(black_box(&slice)).unwrap()));
         });
         g.bench_function(format!("slice_from_str_{name}"), |b| {
             b.iter(|| {
                 let v: UrnSlice<'_> = serde_json::from_str(black_box(json.as_str())).unwrap();
                 black_box(v)
-            })
+            });
         });
     }
 

@@ -3,6 +3,8 @@ use alloc::borrow::Cow;
 #[cfg(feature = "std")]
 use std::borrow::Cow;
 
+use serde::de::Error as DeError;
+
 use crate::{UrnSlice, cow::TriCow, parse_urn};
 
 #[cfg(feature = "alloc")]
@@ -21,7 +23,7 @@ impl<'de> serde::Deserialize<'de> for UrnSlice<'de> {
         };
         #[cfg(not(feature = "alloc"))]
         let s = TriCow::Borrowed(<&str>::deserialize(de)?);
-        parse_urn(s).map_err(serde::de::Error::custom)
+        parse_urn(s).map_err(DeError::custom)
     }
 }
 

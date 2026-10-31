@@ -1,13 +1,15 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{borrow::ToOwned, string::String};
-use core::{ops::Deref, slice::SliceIndex};
+use core::{
+    ops::{Deref, Range},
+    slice::SliceIndex,
+};
 
 #[cfg(not(feature = "alloc"))]
 use super::Error;
 use super::Result;
 
-#[allow(clippy::module_name_repetitions)]
-pub enum TriCow<'a> {
+pub(crate) enum TriCow<'a> {
     #[cfg(feature = "alloc")]
     Owned(String),
     Borrowed(&'a str),
@@ -69,7 +71,7 @@ fn has_ascii_upper(bytes: &[u8]) -> bool {
 impl TriCow<'_> {
     /// Take the buffer as a `String`, moving it when already owned and copying otherwise.
     #[cfg(feature = "alloc")]
-    pub fn into_string(self) -> String {
+    pub(crate) fn into_string(self) -> String {
         match self {
             TriCow::Owned(s) => s,
             TriCow::Borrowed(s) => s.to_owned(),
@@ -80,15 +82,17 @@ impl TriCow<'_> {
     /// Promote `Borrowed` to `Owned`; no-op for `Owned` / `MutBorrowed`. Requires
     /// `alloc` since `Borrowed` can only be upgraded by copying into a `String`.
     #[cfg(feature = "alloc")]
-    pub fn ensure_owned(&mut self) -> Result<()> {
+    pub(crate) fn ensure_owned(&mut self) {
         if let TriCow::Borrowed(s) = *self {
             *self = TriCow::Owned(s.to_owned());
         }
-        Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    pub fn replace_range(&mut self, range: core::ops::Range<usize>, with: &str) -> Result<()> {
+    #[cfg_attr(
+        feature = "alloc",
+        expect(clippy::unnecessary_wraps, reason = "only fails without `alloc`, where it can't reallocate")
+    )]
+    pub(crate) fn replace_range(&mut self, range: Range<usize>, with: &str) -> Result<()> {
         match self {
             #[cfg(feature = "alloc")]
             TriCow::Owned(s) => {
@@ -106,8 +110,9 @@ impl TriCow<'_> {
             TriCow::Borrowed(_) => Err(Error::AllocRequired),
             TriCow::MutBorrowed(s) => {
                 if range.len() == with.len() {
-                    #[cfg_attr(not(feature = "alloc"), allow(clippy::redundant_clone))]
-                    if let Some(slice) = s.get_mut(range.clone()) {
+                    // A fresh range instead of `range.clone()`: without `alloc`, `range` isn't
+                    // used again and the clone would be redundant.
+                    if let Some(slice) = s.get_mut(range.start..range.end) {
                         // SAFETY: `range.len() == with.len()` is checked above, so
                         // `copy_from_slice` can't panic. Both `slice` and `with` originate
                         // from `&str`, so they are valid UTF-8 of identical byte length;
@@ -131,75 +136,51 @@ impl TriCow<'_> {
             }
         }
     }
-    #[cfg_attr(not(feature = "alloc"), allow(clippy::missing_const_for_fn))]
-    fn to_mut(&mut self) -> Result<&mut str> {
-        match self {
+    /// # Panics
+    /// Panics if range isn't at valid character boundaries
+    pub(crate) fn make_uppercase<R>(&mut self, range: R) -> Result<()>
+    where
+        R: Clone + SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
+    {
+        self.ascii_case(range, |b| b.iter().any(u8::is_ascii_lowercase), str::make_ascii_uppercase)
+    }
+
+    /// # Panics
+    /// Panics if range isn't at valid character boundaries
+    pub(crate) fn make_lowercase<R>(&mut self, range: R) -> Result<()>
+    where
+        R: Clone + SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
+    {
+        // Non-ASCII input isn't rejected here; validation fails on it later.
+        self.ascii_case(range, has_ascii_upper, str::make_ascii_lowercase)
+    }
+
+    /// Apply `change` to `range`. A `Borrowed` buffer is only copied into an `Owned` one when
+    /// `needs_change` reports that the range would actually change.
+    #[cfg_attr(feature = "alloc", expect(clippy::unnecessary_wraps, reason = "only fails without `alloc`, where it can't copy"))]
+    fn ascii_case<R>(&mut self, range: R, needs_change: fn(&[u8]) -> bool, change: fn(&mut str)) -> Result<()>
+    where
+        R: Clone + SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
+    {
+        let s: &mut str = match self {
             #[cfg(feature = "alloc")]
-            TriCow::Owned(s) => Ok(s.as_mut_str()),
-            #[cfg(feature = "alloc")]
+            TriCow::Owned(s) => s,
+            TriCow::MutBorrowed(s) => s,
             TriCow::Borrowed(s) => {
-                *self = TriCow::Owned(s.to_owned());
-                if let TriCow::Owned(s) = self {
-                    Ok(s.as_mut_str())
-                } else {
-                    // Just assigned `TriCow::Owned(...)` on the line above; the variant
-                    // can't have changed between the assignment and the match.
-                    unreachable!("cow isn't owned after making it owned, what happened?")
+                #[cfg(feature = "alloc")]
+                if needs_change(&s.as_bytes()[range.clone()]) {
+                    let mut owned = (*s).to_owned();
+                    change(&mut owned[range]);
+                    *self = TriCow::Owned(owned);
                 }
-            }
-            #[cfg(not(feature = "alloc"))]
-            TriCow::Borrowed(_) => Err(Error::AllocRequired),
-            TriCow::MutBorrowed(s) => Ok(s),
-        }
-    }
-    /// # Panics
-    /// Panics if range isn't at valid character boundaries
-    pub fn make_uppercase<R>(&mut self, range: R) -> Result<()>
-    where
-        R: Clone + SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
-    {
-        match self {
-            #[cfg(feature = "alloc")]
-            TriCow::Owned(s) => {
-                s[range].make_ascii_uppercase();
-                Ok(())
-            }
-            TriCow::MutBorrowed(s) => {
-                s[range].make_ascii_uppercase();
-                Ok(())
-            }
-            // Only promote Borrowed -> Owned if mutation is actually required.
-            TriCow::Borrowed(_) => {
-                if self.as_bytes()[range.clone()].iter().any(u8::is_ascii_lowercase) {
-                    self.to_mut()?[range].make_ascii_uppercase();
+                #[cfg(not(feature = "alloc"))]
+                if needs_change(&s.as_bytes()[range]) {
+                    return Err(Error::AllocRequired);
                 }
-                Ok(())
+                return Ok(());
             }
-        }
-    }
-    /// # Panics
-    /// Panics if range isn't at valid character boundaries
-    pub fn make_lowercase<R>(&mut self, range: R) -> Result<()>
-    where
-        R: Clone + SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
-    {
-        match self {
-            #[cfg(feature = "alloc")]
-            TriCow::Owned(s) => {
-                // if this isn't ascii, it will fail later
-                s[range].make_ascii_lowercase();
-                Ok(())
-            }
-            TriCow::MutBorrowed(s) => {
-                s[range].make_ascii_lowercase();
-                Ok(())
-            }
-            TriCow::Borrowed(_) => {
-                if has_ascii_upper(&self.as_bytes()[range.clone()]) {
-                    self.to_mut()?[range].make_ascii_lowercase();
-                }
-                Ok(())
-            }
-        }
+        };
+        change(&mut s[range]);
+        Ok(())
     }
 }

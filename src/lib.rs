@@ -21,7 +21,6 @@
 //! # Ok(())
 //! # }
 //! ```
-#![allow(clippy::missing_panics_doc)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #[cfg(not(feature = "std"))]
@@ -37,6 +36,8 @@ use core::{
     hash::{self, Hash},
     num::{NonZeroU8, NonZeroU32},
     ops::Range,
+    result,
+    str,
 };
 
 #[cfg(feature = "std")]
@@ -215,7 +216,7 @@ pub enum Error {
     InvalidUtf8,
 }
 
-type Result<T, E = Error> = core::result::Result<T, E>;
+type Result<T, E = Error> = result::Result<T, E>;
 
 /// A borrowed RFC2141/8141 URN (Uniform Resource Name). This is a copy-on-write type.
 ///
@@ -286,7 +287,7 @@ impl UrnSlice<'static> {
     }
 }
 
-impl<'a> UrnSlice<'a> {
+impl UrnSlice<'_> {
     #[inline]
     const fn nid_range(&self) -> Range<usize> {
         // urn:<nid>
@@ -713,7 +714,7 @@ impl<'a> TryFrom<&'a str> for UrnSlice<'a> {
 /// ```
 /// # use urn_rs::UrnSlice;
 /// let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
-/// let s = core::str::from_utf8_mut(&mut buf[..]).unwrap();
+/// let s = str::from_utf8_mut(&mut buf[..]).unwrap();
 /// let urn = UrnSlice::try_from(s).unwrap();
 /// assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
 /// ```
@@ -736,7 +737,7 @@ impl TryFrom<String> for UrnSlice<'static> {
 impl<'a> TryFrom<&'a [u8]> for UrnSlice<'a> {
     type Error = Error;
     fn try_from(value: &'a [u8]) -> Result<Self> {
-        let s = core::str::from_utf8(value).map_err(|_| Error::InvalidUtf8)?;
+        let s = str::from_utf8(value).map_err(|_| Error::InvalidUtf8)?;
         parse_urn(TriCow::Borrowed(s))
     }
 }
@@ -744,7 +745,7 @@ impl<'a> TryFrom<&'a [u8]> for UrnSlice<'a> {
 impl<'a> TryFrom<&'a mut [u8]> for UrnSlice<'a> {
     type Error = Error;
     fn try_from(value: &'a mut [u8]) -> Result<Self> {
-        let s = core::str::from_utf8_mut(value).map_err(|_| Error::InvalidUtf8)?;
+        let s = str::from_utf8_mut(value).map_err(|_| Error::InvalidUtf8)?;
         parse_urn(TriCow::MutBorrowed(s))
     }
 }
@@ -977,7 +978,6 @@ impl<'a> UrnBuilder<'a> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -987,6 +987,7 @@ mod tests {
     use super::alloc::{vec, vec::Vec};
 
     #[test]
+    #[expect(clippy::too_many_lines, reason = "flat list of parse and build cases")]
     fn it_works() {
         UrnSlice::try_from("6򭞦*�").unwrap_err();
         #[cfg(feature = "alloc")]
@@ -1050,7 +1051,7 @@ mod tests {
         );
         let mut arr = *b"uRn:eXaMpLe:%3d%3a?=aoiwnfuafo";
         assert_eq!(
-            UrnSlice::try_from(core::str::from_utf8_mut(&mut arr[..]).unwrap()).unwrap().as_str(),
+            UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()).unwrap().as_str(),
             "urn:example:%3D%3A?=aoiwnfuafo",
         );
 
@@ -1065,21 +1066,12 @@ mod tests {
         assert_eq!(UrnSlice::try_from("urn:example:%a"), Err(Error::InvalidNss));
         assert_eq!(UrnSlice::try_from("urn:example:%a_"), Err(Error::InvalidNss));
         let mut arr = *b"urn:example:%a0?+";
-        assert_eq!(
-            UrnSlice::try_from(core::str::from_utf8_mut(&mut arr[..]).unwrap()),
-            Err(Error::InvalidRComponent)
-        );
+        assert_eq!(UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()), Err(Error::InvalidRComponent));
         let mut arr = *b"urn:example:%a0?+%a0?=";
-        assert_eq!(
-            UrnSlice::try_from(core::str::from_utf8_mut(&mut arr[..]).unwrap()),
-            Err(Error::InvalidQComponent)
-        );
+        assert_eq!(UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()), Err(Error::InvalidQComponent));
         let mut arr = *b"urn:example:%a0?+%a0?=a";
         assert_eq!(
-            UrnSlice::try_from(core::str::from_utf8_mut(&mut arr[..]).unwrap())
-                .unwrap()
-                .r_component()
-                .unwrap(),
+            UrnSlice::try_from(str::from_utf8_mut(&mut arr[..]).unwrap()).unwrap().r_component().unwrap(),
             "%A0",
         );
 
@@ -1113,7 +1105,7 @@ mod tests {
     fn mut_str_normalizes_in_place() {
         let mut buf = *b"uRn:eXaMpLe:Foo-Bar";
         let buf_ptr = buf.as_ptr();
-        let s = core::str::from_utf8_mut(&mut buf[..]).unwrap();
+        let s = str::from_utf8_mut(&mut buf[..]).unwrap();
         let urn = UrnSlice::try_from(s).unwrap();
         assert_eq!(urn.as_str().as_ptr(), buf_ptr);
         assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
@@ -1138,6 +1130,7 @@ mod tests {
 
     #[cfg(all(feature = "alloc", feature = "exact-eq"))]
     #[test]
+    #[expect(clippy::many_single_char_names, reason = "a..e name interchangeable sample URNs")]
     fn exact_eq_includes_rqf() {
         use core::cmp::Ordering;
         #[cfg(feature = "std")]

@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+//! Benchmarks for percent encoding and decoding.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
@@ -18,7 +18,7 @@ use urn_rs::percent::{
 mod fixtures;
 
 fn bench_encode(c: &mut Criterion) {
-    let long_ascii = fixtures::long_nss(1024).chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
+    let long_ascii = fixtures::long_nss(1024).chars().filter(char::is_ascii_alphanumeric).collect::<String>();
     let long_unicode: String = fixtures::UNICODE_PLAIN.repeat(64);
 
     let cases: &[(&str, &str)] = &[
@@ -39,7 +39,7 @@ fn bench_encode(c: &mut Criterion) {
     g.bench_function("r_long_unicode", |b| b.iter(|| black_box(encode_r_component(black_box(long_unicode.as_str())))));
     let r_many_q = fixtures::r_component_many_q(512);
     g.bench_function("r_many_question_marks", |b| {
-        b.iter(|| black_box(encode_r_component(black_box(r_many_q.as_str()))))
+        b.iter(|| black_box(encode_r_component(black_box(r_many_q.as_str()))));
     });
     g.finish();
 }
@@ -85,7 +85,7 @@ fn bench_decode_iter(c: &mut Criterion) {
             b.iter(|| {
                 let v: Result<Vec<u8>, _> = decode_nss_iter(black_box(input)).collect();
                 black_box(v)
-            })
+            });
         });
         // Zero-alloc consumer: just count the bytes.
         g.bench_function(format!("nss_count_{name}"), |b| {
@@ -98,7 +98,7 @@ fn bench_decode_iter(c: &mut Criterion) {
                     n += 1;
                 }
                 black_box(n)
-            })
+            });
         });
     }
     g.finish();

@@ -1,4 +1,5 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+//! Benchmarks for `UrnBuilder` and the component accessors.
+#![expect(clippy::unwrap_used, reason = "fixtures are known-valid URNs")]
 
 use core::hash::{Hash, Hasher};
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -12,7 +13,7 @@ fn bench_builder(c: &mut Criterion) {
     let mut g = c.benchmark_group("builder");
 
     g.bench_function("build_minimal", |b| {
-        b.iter(|| black_box(UrnBuilder::new(black_box("example"), black_box("1234:5678")).build().unwrap()))
+        b.iter(|| black_box(UrnBuilder::new(black_box("example"), black_box("1234:5678")).build().unwrap()));
     });
 
     g.bench_function("build_all_components", |b| {
@@ -25,7 +26,7 @@ fn bench_builder(c: &mut Criterion) {
                     .build()
                     .unwrap(),
             )
-        })
+        });
     });
 
     g.finish();
@@ -50,14 +51,14 @@ fn bench_accessors(c: &mut Criterion) {
     g.bench_function("eq_same_all_components", |b| b.iter(|| black_box(black_box(&urn_a) == black_box(&urn_b))));
     g.bench_function("eq_same_minimal", |b| {
         let m = urn_minimal.clone();
-        b.iter(|| black_box(black_box(&urn_minimal) == black_box(&m)))
+        b.iter(|| black_box(black_box(&urn_minimal) == black_box(&m)));
     });
     g.bench_function("hash_all_components", |b| {
         b.iter(|| {
             let mut h = DefaultHasher::new();
             black_box(&urn).hash(&mut h);
             black_box(h.finish())
-        })
+        });
     });
     g.finish();
 }

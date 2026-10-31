@@ -35,6 +35,7 @@ const fn build_byte_class() -> [u8; 256] {
     let mut t = [0u8; 256];
     let mut i = 0;
     while i < 256 {
+        #[expect(clippy::cast_possible_truncation, reason = "the loop keeps `i` below 256")]
         let b = i as u8;
         let mut m = 0u8;
         let is_alpha = b.is_ascii_alphabetic();
@@ -88,6 +89,7 @@ const fn build_hex_val() -> [u8; 256] {
     let mut t = [0xFFu8; 256];
     let mut i = 0;
     while i < 256 {
+        #[expect(clippy::cast_possible_truncation, reason = "the loop keeps `i` below 256")]
         let b = i as u8;
         let v = match b {
             b'0'..=b'9' => b - b'0',

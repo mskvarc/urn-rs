@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+//! Benchmarks for parsing URNs from the various input types.
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
@@ -24,14 +24,14 @@ fn bench_parse(c: &mut Criterion) {
         g.bench_function(name, |b| {
             b.iter(|| {
                 let _ = black_box(UrnSlice::try_from(black_box(input)));
-            })
+            });
         });
     }
 
     g.bench_function("slice_from_str_long", |b| {
         b.iter(|| {
             let _ = black_box(UrnSlice::try_from(black_box(long.as_str())));
-        })
+        });
     });
 
     for (name, input) in [
@@ -47,7 +47,7 @@ fn bench_parse(c: &mut Criterion) {
                     let _ = black_box(UrnSlice::try_from(black_box(s)));
                 },
                 BatchSize::SmallInput,
-            )
+            );
         });
     }
 
@@ -61,7 +61,7 @@ fn bench_parse(c: &mut Criterion) {
         g.bench_function(name, |b| {
             b.iter(|| {
                 let _ = black_box(Urn::try_from(black_box(input)));
-            })
+            });
         });
     }
 
@@ -70,14 +70,14 @@ fn bench_parse(c: &mut Criterion) {
             || fixtures::NORMALIZED.to_owned(),
             |s| black_box(Urn::try_from(black_box(s))),
             BatchSize::SmallInput,
-        )
+        );
     });
     g.bench_function("urn_from_string_needs_norm", |b| {
         b.iter_batched(
             || fixtures::NEEDS_NORM.to_owned(),
             |s| black_box(Urn::try_from(black_box(s))),
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.bench_function("urn_from_mut_str_needs_norm", |b| {
@@ -88,7 +88,7 @@ fn bench_parse(c: &mut Criterion) {
                 let _ = black_box(Urn::try_from(black_box(s)));
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     g.finish();

@@ -1,5 +1,4 @@
 //! This module contains functions for percent-encoding and decoding various components of a URN.
-#![cfg_attr(not(feature = "alloc"), allow(clippy::redundant_pub_crate))]
 
 #[cfg(feature = "alloc")]
 use crate::Error;
@@ -12,6 +11,9 @@ use crate::{
 };
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::{string::String, vec::Vec};
+use core::ops::Range;
+#[cfg(feature = "alloc")]
+use core::str::from_utf8_unchecked;
 
 /// Different components are percent-encoded differently...
 #[derive(Copy, Clone)]
@@ -78,7 +80,7 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
     let needs_upper = scan_needs_hex_upper(s.as_bytes(), start);
     #[cfg(feature = "alloc")]
     if needs_upper && matches!(s, TriCow::Borrowed(_)) {
-        s.ensure_owned()?;
+        s.ensure_owned();
     }
     let mut bytes = s.as_bytes();
     let mut i = start;
@@ -95,12 +97,12 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
                 PctEncoded::FComponent => {}
                 PctEncoded::QComponent if i != start => {}
                 PctEncoded::RComponent if i != start && bytes.get(i + 1) != Some(&b'=') => {}
-                _ => return Ok(i),
+                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return Ok(i),
             },
             b'/' => match kind {
                 PctEncoded::FComponent => {}
                 _ if i != start => {}
-                _ => return Ok(i),
+                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return Ok(i),
             },
             b'%' => {
                 if i + 2 < bytes.len() && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
@@ -158,12 +160,12 @@ fn validate(s: &str, start: usize, kind: PctEncoded) -> (usize, bool) {
                 PctEncoded::FComponent => {}
                 PctEncoded::QComponent if i != start => {}
                 PctEncoded::RComponent if i != start && bytes.get(i + 1) != Some(&b'=') => {}
-                _ => return (i, needs_norm),
+                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return (i, needs_norm),
             },
             b'/' => match kind {
                 PctEncoded::FComponent => {}
                 _ if i != start => {}
-                _ => return (i, needs_norm),
+                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return (i, needs_norm),
             },
             b'%' => {
                 if i + 2 < bytes.len() && BYTE_CLASS[bytes[i + 1] as usize] & HEX != 0 && BYTE_CLASS[bytes[i + 2] as usize] & HEX != 0 {
@@ -201,7 +203,7 @@ pub(crate) fn validate_f_component(s: &str) -> (usize, bool) {
 
 /// Uppercase the hex digits of every `%xx` triplet in `range`. Caller must have
 /// validated the range — malformed `%` tails are ignored rather than rejected.
-pub(crate) fn normalize_range(s: &mut TriCow, range: core::ops::Range<usize>) -> Result<()> {
+pub(crate) fn normalize_range(s: &mut TriCow, range: Range<usize>) -> Result<()> {
     let mut i = range.start;
     while i + 2 < range.end {
         if s.as_bytes()[i] == b'%' {
@@ -243,7 +245,7 @@ impl<'a> DecodeIter<'a> {
 }
 
 #[cfg(feature = "alloc")]
-impl<'a> Iterator for DecodeIter<'a> {
+impl Iterator for DecodeIter<'_> {
     type Item = Result<u8>;
     fn next(&mut self) -> Option<Result<u8>> {
         if self.done || self.i >= self.bytes.len() {
@@ -265,12 +267,12 @@ impl<'a> Iterator for DecodeIter<'a> {
                 PctEncoded::FComponent => {}
                 PctEncoded::QComponent if i != 0 => {}
                 PctEncoded::RComponent if i != 0 && self.bytes.get(i + 1) != Some(&b'=') => {}
-                _ => return fail(self),
+                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return fail(self),
             },
             b'/' => match self.kind {
                 PctEncoded::FComponent => {}
                 _ if i != 0 => {}
-                _ => return fail(self),
+                PctEncoded::Nss | PctEncoded::RComponent | PctEncoded::QComponent => return fail(self),
             },
             b'%' => {
                 if i + 2 >= self.bytes.len() {
@@ -391,24 +393,28 @@ pub fn decode_f_component(s: &str) -> Result<String> {
 /// # Ok(()) } test_main().unwrap();
 /// ```
 #[cfg(feature = "alloc")]
+#[must_use]
 pub const fn decode_nss_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::Nss, Error::InvalidNss)
 }
 
 /// Percent-decode an r-component byte-by-byte without allocating. See [`decode_nss_iter`].
 #[cfg(feature = "alloc")]
+#[must_use]
 pub const fn decode_r_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::RComponent, Error::InvalidRComponent)
 }
 
 /// Percent-decode a q-component byte-by-byte without allocating. See [`decode_nss_iter`].
 #[cfg(feature = "alloc")]
+#[must_use]
 pub const fn decode_q_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::QComponent, Error::InvalidQComponent)
 }
 
 /// Percent-decode an f-component byte-by-byte without allocating. See [`decode_nss_iter`].
 #[cfg(feature = "alloc")]
+#[must_use]
 pub const fn decode_f_component_iter(s: &str) -> DecodeIter<'_> {
     DecodeIter::new(s, PctEncoded::FComponent, Error::InvalidFComponent)
 }
@@ -456,7 +462,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
     let mut ret = String::with_capacity(bytes.len());
     let plain_mask = match kind {
         PctEncoded::Nss => PLAIN_ENC_NSS,
-        _ => PLAIN_ENC_RQF,
+        PctEncoded::RComponent | PctEncoded::QComponent | PctEncoded::FComponent => PLAIN_ENC_RQF,
     };
     let mut i = 0;
     while i < bytes.len() {
@@ -464,7 +470,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
         if run_end > i {
             // SAFETY: `plain_mask` bits in `BYTE_CLASS` are only set for ASCII
             // bytes (< 0x80), so the run is valid UTF-8.
-            ret.push_str(unsafe { core::str::from_utf8_unchecked(&bytes[i..run_end]) });
+            ret.push_str(unsafe { from_utf8_unchecked(&bytes[i..run_end]) });
             i = run_end;
             if i >= bytes.len() {
                 break;
@@ -496,7 +502,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
                 let triplet = [b'%', hex[0], hex[1]];
                 // SAFETY: `to_hex` returns ASCII hex digits; '%' is ASCII. Three-byte
                 // array is therefore valid UTF-8.
-                ret.push_str(unsafe { core::str::from_utf8_unchecked(&triplet) });
+                ret.push_str(unsafe { from_utf8_unchecked(&triplet) });
             }
             i += 1;
         } else {
@@ -520,7 +526,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
             let len = seq.len() * 3;
             // SAFETY: `to_hex` returns ASCII hex digits; '%' is ASCII. The written
             // prefix is therefore valid UTF-8.
-            ret.push_str(unsafe { core::str::from_utf8_unchecked(&buf[..len]) });
+            ret.push_str(unsafe { from_utf8_unchecked(&buf[..len]) });
         }
     }
     ret
@@ -558,7 +564,7 @@ impl<'a> EncodeIter<'a> {
 }
 
 #[cfg(feature = "alloc")]
-impl<'a> Iterator for EncodeIter<'a> {
+impl Iterator for EncodeIter<'_> {
     type Item = u8;
     fn next(&mut self) -> Option<u8> {
         if self.pending_pos < self.pending_len {
@@ -572,7 +578,7 @@ impl<'a> Iterator for EncodeIter<'a> {
         let b = self.bytes[self.i];
         let plain_mask = match self.kind {
             PctEncoded::Nss => PLAIN_ENC_NSS,
-            _ => PLAIN_ENC_RQF,
+            PctEncoded::RComponent | PctEncoded::QComponent | PctEncoded::FComponent => PLAIN_ENC_RQF,
         };
         if b < 0x80 {
             let cls = BYTE_CLASS[b as usize];
@@ -726,7 +732,6 @@ pub fn encode_f_component(s: &str) -> Result<String> {
 }
 
 #[cfg(all(test, feature = "alloc"))]
-#[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
 mod swar_tests {
     #[cfg(not(feature = "std"))]
     use alloc::vec;
@@ -747,7 +752,7 @@ mod swar_tests {
         let mut x: u32 = 0x1234_5678;
         for b in &mut buf {
             x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            *b = (x >> 16) as u8;
+            *b = x.to_le_bytes()[2];
         }
         for len in 0..=buf.len() {
             for start in 0..=len {
