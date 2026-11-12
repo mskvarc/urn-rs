@@ -212,7 +212,8 @@ const CODECS: [Codec; 4] = [
 ];
 
 /// For every component kind: decoding gives what the reference decoder gives, and encoding gives
-/// a valid component that decodes back to the input.
+/// a valid component that decodes back to the input. The same holds for one q-component key or
+/// value, which also never carries a bare `&`, `=` or `+`.
 ///
 /// # Panics
 /// When urn-rs misbehaves.
@@ -239,6 +240,11 @@ pub fn percent(data: &[u8]) {
         assert_eq!((codec.decode)(&encoded).as_deref(), Ok(s), "{kind:?} round trip {s:?}");
         assert_eq!((codec.encode_iter)(s).collect::<Vec<u8>>(), encoded.as_bytes(), "{kind:?} encode_iter {s:?}");
     }
+
+    let encoded = percent::encode_q_param(s);
+    assert_eq!(percent::decode_q_param(&encoded).as_deref(), Ok(s), "q param round trip {s:?}");
+    assert!(!encoded.contains(['&', '=', '+']), "encode_q_param {s:?} gave {encoded:?}");
+    assert!(s.is_empty() || reference::is_component(&encoded, Kind::Q), "encode_q_param {s:?} gave {encoded:?}");
 }
 
 /// One setter call.

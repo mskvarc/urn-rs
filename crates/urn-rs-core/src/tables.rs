@@ -23,6 +23,11 @@ pub(crate) const HEX: u8 = 1 << 1;
 /// NID byte: alphanumeric or `-`.
 pub(crate) const NID: u8 = 1 << 2;
 
+/// Plain pchar minus `&`, `=` and `+`: what one key or value of a `key=value&...` q-component
+/// holds as written. `&` and `=` delimit the pairs, and `+` stands for a space in the HTML form
+/// convention many query parsers apply.
+pub(crate) const PLAIN_Q_PARAM: u8 = 1 << 3;
+
 const fn build_byte_class() -> [u8; 256] {
     let mut t = [0u8; 256];
     let mut i = 0;
@@ -42,6 +47,9 @@ const fn build_byte_class() -> [u8; 256] {
             )
         {
             m |= PLAIN_PCHAR;
+            if !matches!(b, b'&' | b'=' | b'+') {
+                m |= PLAIN_Q_PARAM;
+            }
         }
 
         if is_hex {

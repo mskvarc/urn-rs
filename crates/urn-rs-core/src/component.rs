@@ -18,15 +18,15 @@ pub(crate) enum PctEncoded {
     FComponent,
 }
 
-/// Scan a contiguous run of plain pchar bytes (`PLAIN_PCHAR`), starting at `i`, advancing 8 at a
-/// time via parallel table lookups. Returns the first index that is either
+/// Scan a contiguous run of bytes whose `BYTE_CLASS` entry has a bit of `mask` set, starting at
+/// `i`, advancing 8 at a time via parallel table lookups. Returns the first index that is either
 /// out of bounds or outside the run. The bulk path keeps 8 independent loads in flight so modern
 /// cores can saturate their load ports even though we don't use explicit SIMD intrinsics.
 ///
-/// The parser and the encoder both use it. `PLAIN_PCHAR` is only set for ASCII bytes, so a run it
-/// returns is valid UTF-8.
+/// The parser scans with `PLAIN_PCHAR`; the encoder with `PLAIN_PCHAR` or `PLAIN_Q_PARAM`. Both bits
+/// are only set for ASCII bytes, so a run the encoder gets back is valid UTF-8.
 #[inline]
-pub(crate) fn scan_run(bytes: &[u8], mut i: usize) -> usize {
+pub(crate) fn scan_run(bytes: &[u8], mut i: usize, mask: u8) -> usize {
     while i + 8 <= bytes.len() {
         // 8-byte copy lowers to a single unaligned load.
         let mut c = [0u8; 8];
@@ -34,7 +34,7 @@ pub(crate) fn scan_run(bytes: &[u8], mut i: usize) -> usize {
         let mut outside: u32 = 0;
         // Unrolled so each table lookup is independent.
         for k in 0..8 {
-            if BYTE_CLASS[c[k] as usize] & PLAIN_PCHAR == 0 {
+            if BYTE_CLASS[c[k] as usize] & mask == 0 {
                 outside |= 1 << k;
             }
         }
@@ -44,7 +44,7 @@ pub(crate) fn scan_run(bytes: &[u8], mut i: usize) -> usize {
             return i + outside.trailing_zeros() as usize;
         }
     }
-    while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & PLAIN_PCHAR != 0 {
+    while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & mask != 0 {
         i += 1;
     }
     i
@@ -83,7 +83,7 @@ fn parse(s: &mut TriCow, start: usize, kind: PctEncoded) -> Result<usize> {
     while i < bytes.len() {
         // Bulk-skip plain pchar runs; drops to scalar for specials (%, ?, /) and
         // for bytes outside the pchar set.
-        i = scan_run(bytes, i);
+        i = scan_run(bytes, i, PLAIN_PCHAR);
         if i >= bytes.len() {
             break;
         }
@@ -146,7 +146,7 @@ fn validate(s: &str, start: usize, kind: PctEncoded) -> (usize, bool) {
     let mut i = start;
     let mut needs_norm = false;
     while i < bytes.len() {
-        i = scan_run(bytes, i);
+        i = scan_run(bytes, i, PLAIN_PCHAR);
         if i >= bytes.len() {
             break;
         }
@@ -220,11 +220,11 @@ mod swar_tests {
     use proptest::{collection::vec, prelude::*};
 
     use super::{scan_needs_hex_upper, scan_run};
-    use crate::tables::{BYTE_CLASS, PLAIN_PCHAR};
+    use crate::tables::{BYTE_CLASS, PLAIN_PCHAR, PLAIN_Q_PARAM};
 
     /// Scalar reference for [`scan_run`]: one byte at a time.
-    fn scan_scalar(bytes: &[u8], mut i: usize) -> usize {
-        while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & PLAIN_PCHAR != 0 {
+    fn scan_scalar(bytes: &[u8], mut i: usize, mask: u8) -> usize {
+        while i < bytes.len() && BYTE_CLASS[bytes[i] as usize] & mask != 0 {
             i += 1;
         }
         i
@@ -253,7 +253,9 @@ mod swar_tests {
         #[test]
         fn scan_run_matches_scalar(bytes in bytes(), start in any::<prop::sample::Index>()) {
             let start = start.index(bytes.len() + 1);
-            prop_assert_eq!(scan_run(&bytes, start), scan_scalar(&bytes, start));
+            for mask in [PLAIN_PCHAR, PLAIN_Q_PARAM] {
+                prop_assert_eq!(scan_run(&bytes, start, mask), scan_scalar(&bytes, start, mask));
+            }
         }
 
         #[test]
@@ -274,8 +276,8 @@ mod swar_tests {
         }
         for len in 0..=buf.len() {
             for start in 0..=len {
-                let a = scan_run(&buf[..len], start);
-                let b = scan_scalar(&buf[..len], start);
+                let a = scan_run(&buf[..len], start, PLAIN_PCHAR);
+                let b = scan_scalar(&buf[..len], start, PLAIN_PCHAR);
                 assert_eq!(a, b, "mismatch at len={len} start={start}");
             }
         }
@@ -284,12 +286,12 @@ mod swar_tests {
     #[test]
     fn swar_boundary_cases() {
         let all_plain = [b'A'; 33];
-        assert_eq!(scan_run(&all_plain, 0), 33);
+        assert_eq!(scan_run(&all_plain, 0, PLAIN_PCHAR), 33);
         // Non-plain at every position across the 8-byte window boundary.
         for pos in 0..20 {
             let mut v = [b'A'; 20];
             v[pos] = b'#';
-            assert_eq!(scan_run(&v, 0), pos);
+            assert_eq!(scan_run(&v, 0, PLAIN_PCHAR), pos);
         }
     }
 }

@@ -20,6 +20,9 @@
 //! - q-component: both stay, except as the first character.
 //! - f-component: both stay.
 //!
+//! [`encode_q_param`] encodes one key or value of a q-component made of `key=value` pairs. It
+//! follows the q-component rules and also encodes `&`, `=` and `+`.
+//!
 //! The encoding decides which URN you get. RFC 8141 section 3 compares percent-encoded characters
 //! without decoding them, so `urn:example:a~b` and `urn:example:a%7Eb` are different URNs.
 //!
@@ -31,7 +34,7 @@ use crate::{
     Error,
     Result,
     component::{PctEncoded, scan_run},
-    tables::{BYTE_CLASS, HEX_VAL, PLAIN_PCHAR},
+    tables::{BYTE_CLASS, HEX_VAL, PLAIN_PCHAR, PLAIN_Q_PARAM},
 };
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
@@ -185,7 +188,8 @@ pub fn decode_r_component(s: &str) -> Result<String> {
 pub fn decode_q_component(s: &str) -> Result<String> {
     decode(s, PctEncoded::QComponent).ok_or(Error::InvalidQComponent)
 }
-/// Percent-decode one key or value from [`UrnSlice::q_pairs`](crate::UrnSlice::q_pairs).
+/// Percent-decode one key or value from [`UrnSlice::q_pairs`](crate::UrnSlice::q_pairs). The
+/// inverse of [`encode_q_param`].
 ///
 /// Unlike [`decode_q_component`], this accepts an empty string and a leading `/` or `?`,
 /// since both are valid inside a pair (`urn:example:a?=k=&path=/x`).
@@ -273,15 +277,17 @@ const fn to_hex(n: u8) -> [u8; 2] {
     [a, b]
 }
 
-fn encode(s: &str, kind: PctEncoded) -> String {
+/// Percent-encode `s` as a `kind` component, leaving the bytes in `plain` (`PLAIN_PCHAR` or a
+/// subset of it) as written, and `/` and `?` where `kind` allows them.
+fn encode(s: &str, kind: PctEncoded, plain: u8) -> String {
     let bytes = s.as_bytes();
     let mut ret = String::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        let run_end = scan_run(bytes, i);
+        let run_end = scan_run(bytes, i, plain);
         if run_end > i {
-            // SAFETY: `PLAIN_PCHAR` bits in `BYTE_CLASS` are only set for ASCII
-            // bytes (< 0x80), so the run is valid UTF-8.
+            // SAFETY: `PLAIN_PCHAR` and `PLAIN_Q_PARAM` bits in `BYTE_CLASS` are only
+            // set for ASCII bytes (< 0x80), so the run is valid UTF-8.
             ret.push_str(unsafe { from_utf8_unchecked(&bytes[i..run_end]) });
             i = run_end;
             if i >= bytes.len() {
@@ -291,7 +297,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
         let b = bytes[i];
         if b < 0x80 {
             let cls = BYTE_CLASS[b as usize];
-            let allowed = cls & PLAIN_PCHAR != 0
+            let allowed = cls & plain != 0
                 || match b {
                     b'?' => match kind {
                         PctEncoded::FComponent => true,
@@ -461,7 +467,7 @@ pub fn encode_nss(s: &str) -> Result<String> {
     if s.is_empty() {
         return Err(Error::InvalidNss);
     }
-    Ok(encode(s, PctEncoded::Nss))
+    Ok(encode(s, PctEncoded::Nss, PLAIN_PCHAR))
 }
 /// Percent-encode an r-component according to the RFC. The [module documentation](self) lists
 /// the characters it encodes.
@@ -484,7 +490,7 @@ pub fn encode_r_component(s: &str) -> Result<String> {
     if s.is_empty() {
         return Err(Error::InvalidRComponent);
     }
-    Ok(encode(s, PctEncoded::RComponent))
+    Ok(encode(s, PctEncoded::RComponent, PLAIN_PCHAR))
 }
 /// Percent-encode a q-component according to the RFC. The [module documentation](self) lists
 /// the characters it encodes.
@@ -507,7 +513,48 @@ pub fn encode_q_component(s: &str) -> Result<String> {
     if s.is_empty() {
         return Err(Error::InvalidQComponent);
     }
-    Ok(encode(s, PctEncoded::QComponent))
+    Ok(encode(s, PctEncoded::QComponent, PLAIN_PCHAR))
+}
+/// Percent-encode one key or value for a q-component made of `key=value` pairs. The inverse of
+/// [`decode_q_param`].
+///
+/// RFC 8141 section 2.3.2 gives the q-component the syntax and semantics of a URI query, and
+/// [`UrnSlice::q_pairs`](crate::UrnSlice::q_pairs) splits it the way query strings
+/// conventionally are. This encodes what [`encode_q_component`] encodes, plus the characters that
+/// have a role in that convention:
+///
+/// - `&` and `=`, which delimit the pairs. RFC 3986 section 2.2 says data that would read as a
+///   delimiter must be percent-encoded.
+/// - `+`, which the HTML form convention reads as a space. As `%2B` it decodes to `+` under both
+///   readings.
+///
+/// A leading `/` or `?` is encoded as well, so the result is valid anywhere in a q-component,
+/// its start included. An empty key or value encodes to an empty string. A q-component can't be
+/// empty, though, so at least one pair has to contribute a character.
+///
+/// ```
+/// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
+/// use urn_rs::percent::{decode_q_param, encode_q_param};
+///
+/// let pairs = [("q", "rock & roll"), ("tz", "+01:00"), ("path", "/a=b")];
+/// let q = pairs
+///     .iter()
+///     .map(|(k, v)| format!("{}={}", encode_q_param(k), encode_q_param(v)))
+///     .collect::<Vec<_>>()
+///     .join("&");
+/// let urn = UrnBuilder::new("example", "nss").q_component(Some(&q)).build()?;
+/// assert_eq!(urn.as_str(), "urn:example:nss?=q=rock%20%26%20roll&tz=%2B01:00&path=%2Fa%3Db");
+///
+/// let decoded = urn
+///     .q_pairs()
+///     .map(|(k, v)| Ok((decode_q_param(k)?, decode_q_param(v.unwrap_or_default())?)))
+///     .collect::<Result<Vec<_>, urn_rs::Error>>()?;
+/// assert_eq!(decoded, pairs.map(|(k, v)| (k.to_owned(), v.to_owned())));
+/// # Ok(()) } test_main().unwrap();
+/// ```
+#[must_use]
+pub fn encode_q_param(s: &str) -> String {
+    encode(s, PctEncoded::QComponent, PLAIN_Q_PARAM)
 }
 /// Percent-encode an f-component according to the RFC. The [module documentation](self) lists
 /// the characters it encodes.
@@ -529,5 +576,5 @@ pub fn encode_q_component(s: &str) -> Result<String> {
 /// in the future, this may return `Error::InvalidFComponent`.
 pub fn encode_f_component(s: &str) -> Result<String> {
     // fragment is allowed to be empty
-    Ok(encode(s, PctEncoded::FComponent))
+    Ok(encode(s, PctEncoded::FComponent, PLAIN_PCHAR))
 }

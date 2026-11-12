@@ -10,7 +10,7 @@
 mod reference;
 mod strategy;
 
-use std::{collections::hash_map::RandomState, hash::BuildHasher, str};
+use std::{collections::hash_map::RandomState, hash::BuildHasher, iter, str};
 
 use proptest::{collection::vec, prelude::*};
 use urn_rs::{Error, UrnSlice};
@@ -393,6 +393,39 @@ proptest! {
             let built = builder_with(codec.kind, &encoded).build().map_err(|e| TestCaseError::fail(format!("{encoded:?}: {e:?}")))?;
             prop_assert_eq!(component_of(&built, codec.kind), Some(encoded.as_str()));
         }
+    }
+
+    /// Keys and values encoded with `encode_q_param` and joined as `key=value&...` give a valid
+    /// q-component that `q_pairs` and `decode_q_param` turn back into the same pairs. The encoder
+    /// only escapes characters a pair can't hold as written: `&`, `=`, `+`, and the ones outside
+    /// plain pchar.
+    #[test]
+    fn q_param_pairs_round_trip(pairs in vec((prop_oneof![any::<String>(), tricky()], prop::option::of(prop_oneof![any::<String>(), tricky()])), 1..6)) {
+        // `q_pairs` skips empty pairs, so each pair needs a key or a value.
+        let pairs: Vec<(String, Option<String>)> = pairs.into_iter().filter(|(k, v)| !k.is_empty() || v.is_some()).collect();
+        let encoded: Vec<(String, Option<String>)> =
+            pairs.iter().map(|(k, v)| (percent::encode_q_param(k), v.as_deref().map(percent::encode_q_param))).collect();
+        for piece in encoded.iter().flat_map(|(k, v)| iter::once(k).chain(v)) {
+            for triplet in piece.split('%').skip(1) {
+                let byte = triplet.get(..2).and_then(|hex| u8::from_str_radix(hex, 16).ok());
+                prop_assert!(byte.is_some_and(|b| !reference::is_plain_pchar(char::from(b)) || b"&=+".contains(&b)), "{piece:?}");
+            }
+        }
+        let q = encoded
+            .iter()
+            .map(|(k, v)| v.as_ref().map_or_else(|| k.clone(), |v| format!("{k}={v}")))
+            .collect::<Vec<_>>()
+            .join("&");
+        if pairs.is_empty() {
+            return Ok(());
+        }
+        prop_assert!(reference::is_component(&q, Kind::Q), "{q:?}");
+        let urn = UrnBuilder::new("example", "nss").q_component(Some(&q)).build().map_err(|e| TestCaseError::fail(format!("{q:?}: {e:?}")))?;
+        let decoded = urn
+            .q_pairs()
+            .map(|(k, v)| Ok((percent::decode_q_param(k)?, v.map(percent::decode_q_param).transpose()?)))
+            .collect::<Result<Vec<_>, Error>>();
+        prop_assert_eq!(decoded, Ok(pairs), "{}", q);
     }
 
     /// Decoding accepts exactly the valid components and gives what the reference decoder gives.

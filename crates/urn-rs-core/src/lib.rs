@@ -562,7 +562,7 @@ impl UrnSlice<'_> {
     /// # Ok(()) } test_main().unwrap();
     /// ```
     ///
-    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_param`]")]
+    #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_param`]\n- [`percent::encode_q_param`]")]
     #[must_use]
     pub fn q_pairs(&self) -> QPairs<'_> {
         QPairs {
@@ -1743,5 +1743,33 @@ mod tests {
         for bad in ["a#b", "a%4", "%gg", "%FF", "a b"] {
             assert_eq!(decode_q_param(bad), Err(Error::InvalidQComponent), "{bad:?}");
         }
+    }
+
+    /// Exact `encode_q_param` output for each class of character, and the RFC 8141 section 2.3.2
+    /// example rebuilt from its pairs.
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn encode_q_param_exact_output() {
+        use crate::percent::{decode_q_param, encode_q_param};
+        let cases = [
+            ("", ""),
+            // Plain pchar minus `&`, `=` and `+` stays as written.
+            ("AZaz09-._~!$'()*,;:@", "AZaz09-._~!$'()*,;:@"),
+            ("a&b=c+d", "a%26b%3Dc%2Bd"),
+            // `/` and `?` are encoded only as the first character.
+            ("/a/b?c", "%2Fa/b?c"),
+            ("?a?", "%3Fa?"),
+            ("a#b%", "a%23b%25"),
+            ("a b", "a%20b"),
+            ("caf\u{e9}", "caf%C3%A9"),
+        ];
+        for (input, want) in cases {
+            assert_eq!(encode_q_param(input), want, "{input:?}");
+            assert_eq!(decode_q_param(want).as_deref(), Ok(input), "{want:?}");
+        }
+
+        let pairs = [("op", "map"), ("lat", "39.56"), ("lon", "-104.85"), ("datetime", "1969-07-21T02:56:15Z")];
+        let q: Vec<String> = pairs.iter().map(|(k, v)| format!("{}={}", encode_q_param(k), encode_q_param(v))).collect();
+        assert_eq!(q.join("&"), "op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z");
     }
 }
