@@ -10,7 +10,9 @@
 mod reference;
 mod strategy;
 
-use std::{collections::hash_map::RandomState, hash::BuildHasher, iter, str};
+#[cfg(feature = "alloc")]
+use std::iter;
+use std::{collections::hash_map::RandomState, hash::BuildHasher, str};
 
 use proptest::{collection::vec, prelude::*};
 use urn_rs::{Error, UrnSlice};
