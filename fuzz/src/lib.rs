@@ -239,13 +239,20 @@ pub fn percent(data: &[u8]) {
         let encoded = encoded.unwrap_or_else(|e| panic!("{kind:?} encode {s:?}: {e:?}"));
         assert!(reference::is_component(&encoded, kind), "{kind:?} encode {s:?} gave {encoded:?}");
         assert_eq!((codec.decode)(&encoded).as_deref(), Ok(s), "{kind:?} round trip {s:?}");
-        assert_eq!((codec.encode_iter)(s).map(Iterator::collect::<Vec<u8>>).as_deref(), Ok(encoded.as_bytes()), "{kind:?} encode_iter {s:?}");
+        assert_eq!(
+            (codec.encode_iter)(s).map(Iterator::collect::<Vec<u8>>).as_deref(),
+            Ok(encoded.as_bytes()),
+            "{kind:?} encode_iter {s:?}"
+        );
     }
 
     let encoded = percent::encode_q_param(s);
     assert_eq!(percent::decode_q_param(&encoded).as_deref(), Ok(s), "q param round trip {s:?}");
     assert!(!encoded.contains(['&', '=', '+']), "encode_q_param {s:?} gave {encoded:?}");
-    assert!(s.is_empty() || reference::is_component(&encoded, Kind::Q), "encode_q_param {s:?} gave {encoded:?}");
+    assert!(
+        s.is_empty() || reference::is_component(&encoded, Kind::Q),
+        "encode_q_param {s:?} gave {encoded:?}"
+    );
 }
 
 /// One setter call.
