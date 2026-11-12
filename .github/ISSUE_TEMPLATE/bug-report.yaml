@@ -1,0 +1,66 @@
+name: Bug Report
+description: Report a panic, a wrong result, a compile error, or a URN the crate parses, encodes or compares incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search the existing issues first, in case this is already reported.
+
+        Do not use this form for a security vulnerability. Report it privately, following the [security policy](https://github.com/mskvarc/urn-rs/security/policy).
+
+        If the crate works as designed but the design disagrees with RFC 8141, use the RFC Conformance form.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: What went wrong, with the exact error, panic message or compiler output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: The smallest program that shows the problem, with the URN it reads.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: dependency
+    attributes:
+      label: Dependency line
+      description: The `urn-rs` line from your `Cargo.toml`, so the version and the enabled features are both visible.
+      placeholder: 'urn-rs = { version = "1.0.0", default-features = false, features = ["alloc"] }'
+      render: toml
+    validations:
+      required: true
+  - type: input
+    id: rustc
+    attributes:
+      label: Rust version
+      description: The output of `rustc --version`.
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: Target
+      description: The target you build for, if the problem depends on it, as `no_std` problems often do.
+      placeholder: thumbv7em-none-eabihf
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: "This is not a security vulnerability. Vulnerabilities are reported privately, following the [security policy](https://github.com/mskvarc/urn-rs/security/policy)."
+          required: true
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true

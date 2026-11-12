@@ -1,0 +1,49 @@
+name: RFC Conformance
+description: Report a place where the crate does not follow RFC 8141, or RFC 3986 for percent-encoding.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The crate follows RFC 8141. Where RFC 2141 or another URN library disagrees with RFC 8141, the crate follows RFC 8141.
+
+        Two things are left out on purpose. NIDs are checked for syntax only, because the NID rules in RFC 8141 §5.1 and §5.2 govern registration. Per-namespace lexical-equivalence rules are not applied.
+  - type: input
+    id: section
+    attributes:
+      label: RFC and section
+      description: The section the crate does not follow.
+      placeholder: RFC 8141 §3.1
+    validations:
+      required: true
+  - type: textarea
+    id: rfc
+    attributes:
+      label: What the RFC says
+      description: Quote the text that requires the behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What the crate does
+      description: The code, and the output or error that shows the difference.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: dependency
+    attributes:
+      label: Dependency line
+      description: The `urn-rs` line from your `Cargo.toml`.
+      placeholder: 'urn-rs = "1.0.0"'
+      render: toml
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
