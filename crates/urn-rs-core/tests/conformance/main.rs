@@ -197,7 +197,7 @@ fn check_equiv(case: &Equiv) {
     let a = UrnSlice::try_from(mut_str(&mut buf_a, case.a)).unwrap_or_else(|e| panic!("{ctx}: {:?}: {e:?}", case.a));
     let b = UrnSlice::try_from(mut_str(&mut buf_b, case.b)).unwrap_or_else(|e| panic!("{ctx}: {:?}: {e:?}", case.b));
 
-    let expected = if cfg!(feature = "exact-eq") { case.exact_equal } else { case.rfc_equal };
+    let expected = case.equal;
     assert_eq!(a == b, expected, "PartialEq, {ctx}");
     assert_eq!(b == a, expected, "PartialEq is symmetric, {ctx}");
     assert_eq!(a.cmp(&b).is_eq(), expected, "Ord agrees with Eq, {ctx}");

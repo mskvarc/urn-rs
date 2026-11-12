@@ -12,8 +12,8 @@ exclude_re = [
     # `UrnBuilder::build_inner`: `+` in the capacity hint passed to `String::with_capacity`. A
     # wrong hint only changes how often the buffer reallocates. (The other `-` mutants there
     # underflow and panic, so the tests catch them.)
-    "^crates/urn-rs-core/src/lib\\.rs:(979|98[0-4]):\\d+: replace \\+ with \\* in UrnBuilder<'a>::build_inner$",
-    "^crates/urn-rs-core/src/lib\\.rs:980:13: replace \\+ with - in UrnBuilder<'a>::build_inner$",
+    "^crates/urn-rs-core/src/lib\\.rs:(96[6-9]|97[01]):\\d+: replace \\+ with \\* in UrnBuilder<'a>::build_inner$",
+    "^crates/urn-rs-core/src/lib\\.rs:967:13: replace \\+ with - in UrnBuilder<'a>::build_inner$",
 
     # `TriCow::ensure_owned` promotes a borrowed buffer before percent-normalizing it, so the
     # buffer is copied once instead of being checked again triplet by triplet.

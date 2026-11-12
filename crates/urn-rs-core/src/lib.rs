@@ -214,21 +214,17 @@ type Result<T, E = Error> = result::Result<T, E>;
 /// **Note:** the equivalence checks are done
 /// [according to the specification](https://www.rfc-editor.org/rfc/rfc8141.html#section-3),
 /// only taking the NID and NSS into account! If you need exact equivalence checks, consider
-/// comparing using `Urn::as_str()` as the key, or enable the `exact-eq` feature to make
-/// `PartialEq`, `Ord`, and `Hash` operate on the whole (normalized) URN string including
-/// r-, q-, and f-components. Some namespaces may define additional lexical
+/// comparing using `Urn::as_str()` as the key. Some namespaces may define additional lexical
 /// equivalence rules, these aren't accounted for in this implementation (Meaning there might be
 /// false negatives for some namespaces). There will, however, be no false positives.
 ///
 /// # Equivalence and the `Borrow`/`Hash` contract
 ///
-/// With the default (`exact-eq` **off**) equivalence, two URNs can compare `Eq`-equal while
-/// holding distinct `as_str()` representations (they may differ in r/q/f-components). A
-/// hypothetical `Borrow<str>` impl would therefore violate the [`Borrow`] / [`Eq`] / [`Hash`]
-/// contract, so this crate intentionally does not provide one. Callers who need `HashMap`
-/// lookup keyed by the raw URN string should either key on `String` directly, call
-/// `.as_str().to_owned()` after parsing, or enable the `exact-eq` feature — the latter makes
-/// the hash contract match `as_str()`, at the cost of RFC 8141 §3 equivalence.
+/// Two URNs can compare `Eq`-equal while holding distinct `as_str()` representations (they may
+/// differ in r/q/f-components). A hypothetical `Borrow<str>` impl would therefore violate the
+/// [`Borrow`] / [`Eq`] / [`Hash`] contract, so this crate intentionally does not provide one.
+/// Callers who need `HashMap` lookup keyed by the raw URN string should either key on `String`
+/// directly or call `.as_str().to_owned()` after parsing.
 ///
 /// [`Borrow`]: core::borrow::Borrow
 ///
@@ -711,19 +707,10 @@ impl AsRef<str> for UrnSlice<'_> {
 
 impl UrnSlice<'_> {
     /// Portion of the normalized URN string used for equivalence (`PartialEq`,
-    /// `Ord`, `Hash`). With the `exact-eq` feature this is the whole URN
-    /// including r/q/f-components; otherwise just scheme + NID + NSS per
-    /// RFC 8141 §3.
+    /// `Ord`, `Hash`): scheme + NID + NSS per RFC 8141 §3.
     #[inline]
     fn eq_slice(&self) -> &str {
-        #[cfg(feature = "exact-eq")]
-        {
-            &self.urn[..]
-        }
-        #[cfg(not(feature = "exact-eq"))]
-        {
-            &self.urn[..self.nss_range().end]
-        }
+        &self.urn[..self.nss_range().end]
     }
 }
 
@@ -1118,8 +1105,7 @@ mod tests {
         );
 
         // This equality relies on q-component being excluded from eq (RFC 8141 §3).
-        // With `exact-eq`, the q-component participates in eq, so the assertion no longer holds.
-        #[cfg(all(feature = "alloc", not(feature = "exact-eq")))]
+        #[cfg(feature = "alloc")]
         assert_eq!(
             "uRn:eXaMpLe:%3d%3a?=aoiwnfuafo".parse::<UrnSlice>().unwrap(),
             UrnBuilder::new("example", "%3D%3a").build().unwrap()
@@ -1186,7 +1172,7 @@ mod tests {
         assert_eq!(urn.as_str(), "urn:example:Foo-Bar");
     }
 
-    #[cfg(all(feature = "alloc", not(feature = "exact-eq")))]
+    #[cfg(feature = "alloc")]
     #[test]
     fn ord_matches_eq() {
         use core::cmp::Ordering;
@@ -1201,39 +1187,6 @@ mod tests {
         let ao = Urn::try_from("urn:example:abc").unwrap();
         let bo = Urn::try_from("urn:example:abd").unwrap();
         assert!(ao < bo);
-    }
-
-    #[cfg(all(feature = "alloc", feature = "exact-eq"))]
-    #[test]
-    #[expect(clippy::many_single_char_names, reason = "a..e name interchangeable sample URNs")]
-    fn exact_eq_includes_rqf() {
-        use core::cmp::Ordering;
-        #[cfg(feature = "std")]
-        use core::hash::BuildHasher;
-        #[cfg(feature = "std")]
-        use std::collections::hash_map::RandomState;
-
-        let a = UrnSlice::try_from("urn:example:abc").unwrap();
-        let b = UrnSlice::try_from("urn:example:abc?=q").unwrap();
-        let c = UrnSlice::try_from("urn:example:abc?=q").unwrap();
-        let d = UrnSlice::try_from("urn:example:abc#frag").unwrap();
-        let e = UrnSlice::try_from("urn:example:abc?+r").unwrap();
-
-        // r/q/f now affect equality & ordering.
-        assert_ne!(a, b);
-        assert_ne!(a, d);
-        assert_ne!(a, e);
-        assert_ne!(b, d);
-        assert_eq!(b, c);
-        assert_eq!(a.cmp(&b), Ordering::Less);
-
-        // Hash/Eq contract: equal values hash identically.
-        #[cfg(feature = "std")]
-        {
-            let rs = RandomState::new();
-            assert_eq!(rs.hash_one(&b), rs.hash_one(&c));
-            assert_ne!(rs.hash_one(&a), rs.hash_one(&b));
-        }
     }
 
     #[cfg(feature = "alloc")]

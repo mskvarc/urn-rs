@@ -6,8 +6,6 @@
 //!   implements [`core::error::Error`] in every build, `no_std` included.
 //! - `alloc` (enabled by default) - [alloc](https://doc.rust-lang.org/alloc/index.html) support
 //!   (you probably want to keep this enabled)
-//! - `exact-eq` - compare, hash and order the whole URN, r-, q- and f-components included,
-//!   instead of only the RFC 8141 equivalence part (scheme, NID and NSS)
 //! - `static` - the `urn!` macro, which checks a URN literal at compile time
 //!
 //! # Example

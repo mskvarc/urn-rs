@@ -20,9 +20,6 @@ std = ["alloc", "urn-rs-core/std"]
 default = ["std"]
 alloc = ["urn-rs-core/alloc"]
 serde = ["urn-rs-core/serde"]
-# Compare/hash/order the entire URN (including r/q/f-components) instead of
-# only the RFC 8141 §3 equivalence portion (scheme + NID + NSS).
-exact-eq = ["urn-rs-core/exact-eq"]
 # The `urn!` macro for compile-time checked URN literals.
 static = ["dep:urn-rs-static"]
 

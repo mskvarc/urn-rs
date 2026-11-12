@@ -133,7 +133,7 @@ proptest! {
     }
 
     /// `PartialEq`, `Ord`, `PartialOrd` and `Hash` agree with each other and with the reference
-    /// comparison key, with or without `exact-eq`.
+    /// comparison key.
     #[test]
     fn comparisons_agree_with_reference((a, b) in urn_pair()) {
         let (Ok(pa), Ok(pb)) = (reference::parse(&a), reference::parse(&b)) else {

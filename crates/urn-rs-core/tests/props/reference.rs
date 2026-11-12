@@ -57,14 +57,10 @@ pub(crate) struct Parts {
 }
 
 impl Parts {
-    /// The string that `PartialEq`, `Ord` and `Hash` compare: the whole normalized URN with
-    /// `exact-eq`, otherwise only the scheme, NID and NSS (RFC 8141 section 3).
+    /// The string that `PartialEq`, `Ord` and `Hash` compare: the scheme, NID and NSS (RFC 8141
+    /// section 3).
     pub(crate) fn eq_key(&self) -> String {
-        if cfg!(feature = "exact-eq") {
-            self.normalized.clone()
-        } else {
-            format!("urn:{}:{}", self.nid, self.nss)
-        }
+        format!("urn:{}:{}", self.nid, self.nss)
     }
 }
 

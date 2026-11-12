@@ -14,21 +14,17 @@ use core::{
 /// **Note:** the equivalence checks are done
 /// [according to the specification](https://www.rfc-editor.org/rfc/rfc8141.html#section-3),
 /// only taking the NID and NSS into account! If you need exact equivalence checks, consider
-/// comparing using `Urn::as_str()` as the key, or enable the `exact-eq` feature to make
-/// `PartialEq`, `Ord`, and `Hash` operate on the whole (normalized) URN string including
-/// r-, q-, and f-components. Some namespaces may define additional lexical
+/// comparing using `Urn::as_str()` as the key. Some namespaces may define additional lexical
 /// equivalence rules, these aren't accounted for in this implementation (Meaning there might be
 /// false negatives for some namespaces). There will, however, be no false positives.
 ///
 /// # Equivalence and the `Borrow`/`Hash` contract
 ///
-/// With the default (`exact-eq` **off**) equivalence, two URNs can compare `Eq`-equal while
-/// holding distinct `as_str()` representations (they may differ in r/q/f-components). A
-/// hypothetical `Borrow<str>` impl would therefore violate the [`Borrow`] / [`Eq`] / [`Hash`]
-/// contract, so this crate intentionally does not provide one. Callers who need `HashMap`
-/// lookup keyed by the raw URN string should either key on `String` directly, call
-/// `.as_str().to_owned()` after parsing, or enable the `exact-eq` feature — the latter makes
-/// the hash contract match `as_str()`, at the cost of RFC 8141 §3 equivalence.
+/// Two URNs can compare `Eq`-equal while holding distinct `as_str()` representations (they may
+/// differ in r/q/f-components). A hypothetical `Borrow<str>` impl would therefore violate the
+/// [`Borrow`] / [`Eq`] / [`Hash`] contract, so this crate intentionally does not provide one.
+/// Callers who need `HashMap` lookup keyed by the raw URN string should either key on `String`
+/// directly or call `.as_str().to_owned()` after parsing.
 ///
 /// `FromStr` requires a single allocation, but `TryFrom<String>` doesn't, so prefer `TryFrom` when
 /// possible.

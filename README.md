@@ -46,7 +46,6 @@ cargo add urn-rs
 | `std`      |   yes   | `alloc` + links the standard library                                       |
 | `alloc`    |         | Owned `Urn`, `UrnBuilder`, `String`-returning APIs                         |
 | `serde`    |         | `Serialize` / `Deserialize` for `Urn` and `UrnSlice`                       |
-| `exact-eq` |         | Include r-/q-/f-components in `PartialEq` / `Ord` / `Hash` (normalized)    |
 | `static`   |         | `urn!` macro for compile-time checked URN literals                         |
 
 For `no_std`, disable default features. You get `UrnSlice<'a>` (borrowed, zero-alloc). Add `alloc` back for `Urn` and the builder.
@@ -77,16 +76,14 @@ An invalid literal is a compile error, and nothing is parsed at runtime. `UrnSli
 
 ## Equivalence
 
-By default, equality compares only the significant portion of the URN:
+Equality compares only the significant portion of the URN (RFC 8141 §3):
 
 - NID is ASCII-case-insensitive.
 - NSS percent-encoding is normalized before comparison.
 - r-/q-/f-components are ignored.
 - Per-namespace lexical-equivalence rules from individual RFCs are **not** applied.
 
-Enable `exact-eq` when distinct r/q/f components must produce distinct map keys — equality then covers the whole normalized URN.
-
-Because default equality can collapse distinct `as_str()` outputs to the same value, `Urn` and `UrnSlice` do **not** implement `Borrow<str>` — doing so would violate the `Borrow` / `Eq` / `Hash` contract. For `HashMap` lookup keyed by the raw string, key on `String` directly, or enable `exact-eq` to make the hash contract match `as_str()`.
+Because equality can collapse distinct `as_str()` outputs to the same value, `Urn` and `UrnSlice` do **not** implement `Borrow<str>` — doing so would violate the `Borrow` / `Eq` / `Hash` contract. For `HashMap` lookup keyed by the raw string, or when distinct r/q/f components must produce distinct map keys, key on `String` directly.
 
 ## Benchmarks
 

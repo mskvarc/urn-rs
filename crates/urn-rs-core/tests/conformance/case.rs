@@ -71,46 +71,25 @@ impl Invalid {
     }
 }
 
-/// Two valid URNs and how they compare. `rfc_equal` is the default RFC 8141 §3 equivalence (scheme,
-/// NID and NSS only); `exact_equal` is the comparison with the `exact-eq` feature, which also
-/// covers the r/q/f-components.
+/// Two valid URNs and whether they are equivalent under RFC 8141 §3 (scheme, NID and NSS only).
 pub(crate) struct Equiv {
     pub a: &'static str,
     pub b: &'static str,
-    pub rfc_equal: bool,
-    pub exact_equal: bool,
+    pub equal: bool,
     pub source: &'static str,
 }
 
-/// Equal under both comparisons: the two differ only in case or percent-encoding normalization.
+/// Equivalent: the two differ only in case, percent-encoding normalization or r/q/f-components.
 pub(crate) const fn same(a: &'static str, b: &'static str) -> Equiv {
-    Equiv {
-        a,
-        b,
-        rfc_equal: true,
-        exact_equal: true,
-        source: "",
-    }
+    Equiv { a, b, equal: true, source: "" }
 }
 
-/// Equal under RFC 8141 §3, but different with `exact-eq`: they differ only in r/q/f-components.
-pub(crate) const fn rfc_same(a: &'static str, b: &'static str) -> Equiv {
-    Equiv {
-        a,
-        b,
-        rfc_equal: true,
-        exact_equal: false,
-        source: "",
-    }
-}
-
-/// Different under both comparisons.
+/// Not equivalent.
 pub(crate) const fn differ(a: &'static str, b: &'static str) -> Equiv {
     Equiv {
         a,
         b,
-        rfc_equal: false,
-        exact_equal: false,
+        equal: false,
         source: "",
     }
 }

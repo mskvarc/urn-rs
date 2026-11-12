@@ -8,12 +8,11 @@ publish = false
 cargo-fuzz = true
 
 # Mirrors the urn-rs features, so `cargo fuzz run <target> --no-default-features` fuzzes the
-# `no_std` build and `--features exact-eq` the whole-URN comparison.
+# `no_std` build.
 [features]
 default = ["std"]
 std = ["alloc", "urn-rs/std"]
 alloc = ["urn-rs/alloc"]
-exact-eq = ["urn-rs/exact-eq"]
 
 [dependencies]
 arbitrary = { version = "1.5.0", features = ["derive"] }
