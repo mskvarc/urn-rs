@@ -11,25 +11,17 @@
 
 // Bit definitions for BYTE_CLASS entries.
 
-/// pchar set accepted by `parse()` in every kind (alphanumeric | `-` | `.` | `_` |
-/// `~` | `!` | `$` | `&` | `'` | `(` | `)` | `*` | `+` | `,` | `;` | `=` | `:` | `@`).
-pub(crate) const PLAIN_PARSE: u8 = 1 << 0;
-
-/// Encoder "no percent-encode" set for r/q/f components:
-/// alphanumeric | `-` | `.` | `_` | `!` | `$` | `&` | `'` | `(` | `)` | `*` | `+`
-/// | `,` | `;` | `=` | `:` | `@`. (Note: `~` is *not* included — the encoder
-/// percent-encodes it for RFC 2141 compatibility.)
-pub(crate) const PLAIN_ENC_RQF: u8 = 1 << 1;
-
-/// Encoder "no percent-encode" set for NSS: same as `PLAIN_ENC_RQF` but also
-/// excludes `&`.
-pub(crate) const PLAIN_ENC_NSS: u8 = 1 << 2;
+/// Plain pchar: every pchar but the pct-encoded triplet, i.e. `unreserved / sub-delims / ":" / "@"`
+/// (alphanumeric | `-` | `.` | `_` | `~` | `!` | `$` | `&` | `'` | `(` | `)` | `*` | `+` | `,` |
+/// `;` | `=` | `:` | `@`). Every component may hold these as written: the parser accepts them and
+/// the encoder leaves them alone.
+pub(crate) const PLAIN_PCHAR: u8 = 1 << 0;
 
 /// ASCII hex digit (`0`–`9`, `A`–`F`, `a`–`f`).
-pub(crate) const HEX: u8 = 1 << 3;
+pub(crate) const HEX: u8 = 1 << 1;
 
 /// NID byte: alphanumeric or `-`.
-pub(crate) const NID: u8 = 1 << 4;
+pub(crate) const NID: u8 = 1 << 2;
 
 const fn build_byte_class() -> [u8; 256] {
     let mut t = [0u8; 256];
@@ -43,29 +35,13 @@ const fn build_byte_class() -> [u8; 256] {
         let is_alnum = is_alpha || is_digit;
         let is_hex = is_digit || matches!(b, b'A'..=b'F' | b'a'..=b'f');
 
-        // parse plain pchar
-        let parse_plain = is_alnum
+        if is_alnum
             || matches!(
                 b,
                 b'-' | b'.' | b'_' | b'~' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' | b':' | b'@'
-            );
-        if parse_plain {
-            m |= PLAIN_PARSE;
-        }
-
-        // encoder r/q/f plain set (same as parse plain minus `~`)
-        let enc_rqf = is_alnum
-            || matches!(
-                b,
-                b'-' | b'.' | b'_' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' | b':' | b'@'
-            );
-        if enc_rqf {
-            m |= PLAIN_ENC_RQF;
-        }
-
-        // NSS encoder plain: RQF minus `&`
-        if enc_rqf && b != b'&' {
-            m |= PLAIN_ENC_NSS;
+            )
+        {
+            m |= PLAIN_PCHAR;
         }
 
         if is_hex {

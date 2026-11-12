@@ -1623,12 +1623,16 @@ mod tests {
         let r: Encoders = (encode_r_component, encode_r_component_iter);
         let q: Encoders = (encode_q_component, encode_q_component_iter);
         let f: Encoders = (encode_f_component, encode_f_component_iter);
-        let plain = "AZaz09-._!$'()*+,;=:@";
+        // RFC 8141 pchar minus pct-encoded: `~` (unreserved) and `&` (sub-delim) stay as written.
+        let plain = "AZaz09-._~!$&'()*+,;=:@";
         let cases: &[(Encoders, &str, &str)] = &[
             (nss, plain, plain),
             (r, plain, plain),
-            (nss, "a&b~/?", "a%26b%7E%2F%3F"),
-            (r, "a&b~/?", "a&b%7E/?"),
+            (q, plain, plain),
+            (f, plain, plain),
+            (nss, "a&b~/?", "a&b~%2F%3F"),
+            (r, "a&b~/?", "a&b~/?"),
+            (nss, "%#[]", "%25%23%5B%5D"),
             (r, "?a?=b/", "%3Fa%3F=b/"),
             (q, "?a?=b/", "%3Fa?=b/"),
             (q, "/a", "%2Fa"),

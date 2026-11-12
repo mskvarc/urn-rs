@@ -1,10 +1,37 @@
 //! This module contains functions for percent-encoding and decoding various components of a URN.
+//!
+//! # Encoding
+//!
+//! The encoders follow the generic URN syntax of RFC 8141 section 2. They leave alone every
+//! character that any component may hold as written: letters, digits, the other unreserved
+//! characters `-` `.` `_` `~`, the sub-delims `!` `$` `&` `'` `(` `)` `*` `+` `,` `;` `=`, and
+//! `:` and `@`. RFC 3986 section 2.3 says producers should not percent-encode unreserved
+//! characters, and RFC 8141 Appendix B allows `~` and `&` in the NSS.
+//!
+//! They percent-encode everything else, with uppercase hex digits: `%`, `#`, the other ASCII
+//! characters outside pchar, and each UTF-8 byte of a non-ASCII character. `/` and `?` depend on
+//! the component:
+//!
+//! - NSS: both are encoded. A `?` would end the NSS, and `/` separates the levels of a
+//!   hierarchical name (RFC 8141 section 2.2), so a `/` inside one level must not look like a
+//!   separator. To build `urn:example:a/b`, encode each level and join the results with `/`.
+//! - r-component: both stay, except as the first character, and a `?` followed by `=`, which
+//!   would start a q-component.
+//! - q-component: both stay, except as the first character.
+//! - f-component: both stay.
+//!
+//! The encoding decides which URN you get. RFC 8141 section 3 compares percent-encoded characters
+//! without decoding them, so `urn:example:a~b` and `urn:example:a%7Eb` are different URNs.
+//!
+//! A URN namespace may define its own encoding rules, and these functions don't know them. A
+//! namespace registered under RFC 2141 keeps its rules (RFC 8141 section 2.2). RFC 2141 required
+//! `~` and `&` to be percent-encoded, so such a namespace may still expect `%7E` and `%26`.
 
 use crate::{
     Error,
     Result,
     component::{PctEncoded, scan_run},
-    tables::{BYTE_CLASS, HEX_VAL, PLAIN_ENC_NSS, PLAIN_ENC_RQF, PLAIN_PARSE},
+    tables::{BYTE_CLASS, HEX_VAL, PLAIN_PCHAR},
 };
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
@@ -60,7 +87,7 @@ impl Iterator for DecodeIter<'_> {
             Some(Err(this.err))
         };
         let cls = BYTE_CLASS[ch as usize];
-        if cls & PLAIN_PARSE != 0 {
+        if cls & PLAIN_PCHAR != 0 {
             self.i = i + 1;
             return Some(Ok(ch));
         }
@@ -249,15 +276,11 @@ const fn to_hex(n: u8) -> [u8; 2] {
 fn encode(s: &str, kind: PctEncoded) -> String {
     let bytes = s.as_bytes();
     let mut ret = String::with_capacity(bytes.len());
-    let plain_mask = match kind {
-        PctEncoded::Nss => PLAIN_ENC_NSS,
-        PctEncoded::RComponent | PctEncoded::QComponent | PctEncoded::FComponent => PLAIN_ENC_RQF,
-    };
     let mut i = 0;
     while i < bytes.len() {
-        let run_end = scan_run(bytes, i, plain_mask);
+        let run_end = scan_run(bytes, i);
         if run_end > i {
-            // SAFETY: `plain_mask` bits in `BYTE_CLASS` are only set for ASCII
+            // SAFETY: `PLAIN_PCHAR` bits in `BYTE_CLASS` are only set for ASCII
             // bytes (< 0x80), so the run is valid UTF-8.
             ret.push_str(unsafe { from_utf8_unchecked(&bytes[i..run_end]) });
             i = run_end;
@@ -268,7 +291,7 @@ fn encode(s: &str, kind: PctEncoded) -> String {
         let b = bytes[i];
         if b < 0x80 {
             let cls = BYTE_CLASS[b as usize];
-            let allowed = cls & plain_mask != 0
+            let allowed = cls & PLAIN_PCHAR != 0
                 || match b {
                     b'?' => match kind {
                         PctEncoded::FComponent => true,
@@ -324,9 +347,9 @@ fn encode(s: &str, kind: PctEncoded) -> String {
 /// Iterator that percent-encodes a component byte-by-byte without allocating.
 ///
 /// Yields one ASCII byte at a time. Bytes that are allowed in their component
-/// (per RFC 8141) pass through as-is; every other byte is replaced by its
-/// `%XX` triplet (three bytes). Multi-byte UTF-8 scalars are encoded by
-/// percent-encoding each of their bytes in turn.
+/// (per RFC 8141, see the [module documentation](self)) pass through as-is; every
+/// other byte is replaced by its `%XX` triplet (three bytes). Multi-byte UTF-8
+/// scalars are encoded by percent-encoding each of their bytes in turn.
 pub struct EncodeIter<'a> {
     bytes: &'a [u8],
     i: usize,
@@ -361,13 +384,9 @@ impl Iterator for EncodeIter<'_> {
             return None;
         }
         let b = self.bytes[self.i];
-        let plain_mask = match self.kind {
-            PctEncoded::Nss => PLAIN_ENC_NSS,
-            PctEncoded::RComponent | PctEncoded::QComponent | PctEncoded::FComponent => PLAIN_ENC_RQF,
-        };
         if b < 0x80 {
             let cls = BYTE_CLASS[b as usize];
-            let allowed = cls & plain_mask != 0
+            let allowed = cls & PLAIN_PCHAR != 0
                 || match b {
                     b'?' => match self.kind {
                         PctEncoded::FComponent => true,
@@ -421,7 +440,8 @@ pub const fn encode_f_component_iter(s: &str) -> EncodeIter<'_> {
     EncodeIter::new(s, PctEncoded::FComponent)
 }
 
-/// Percent-decode a NSS according to the RFC
+/// Percent-encode a NSS according to the RFC. The [module documentation](self) lists the
+/// characters it encodes.
 ///
 /// ```
 /// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
@@ -431,6 +451,7 @@ pub const fn encode_f_component_iter(s: &str) -> EncodeIter<'_> {
 ///         .as_str(),
 ///     "urn:example:test%20nss"
 /// );
+/// assert_eq!(urn_rs::percent::encode_nss("a~b&c/d")?, "a~b&c%2Fd");
 /// # Ok(()) } test_main().unwrap();
 /// ```
 ///
@@ -442,7 +463,8 @@ pub fn encode_nss(s: &str) -> Result<String> {
     }
     Ok(encode(s, PctEncoded::Nss))
 }
-/// Percent-decode an r-component according to the RFC
+/// Percent-encode an r-component according to the RFC. The [module documentation](self) lists
+/// the characters it encodes.
 ///
 /// ```
 /// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
@@ -464,7 +486,8 @@ pub fn encode_r_component(s: &str) -> Result<String> {
     }
     Ok(encode(s, PctEncoded::RComponent))
 }
-/// Percent-decode a q-component according to the RFC
+/// Percent-encode a q-component according to the RFC. The [module documentation](self) lists
+/// the characters it encodes.
 ///
 /// ```
 /// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
@@ -473,7 +496,7 @@ pub fn encode_r_component(s: &str) -> Result<String> {
 ///         .q_component(Some(&urn_rs::percent::encode_q_component("~q component~")?))
 ///         .build()?
 ///         .as_str(),
-///     "urn:example:nss?=%7Eq%20component%7E"
+///     "urn:example:nss?=~q%20component~"
 /// );
 /// # Ok(()) } test_main().unwrap();
 /// ```
@@ -486,7 +509,8 @@ pub fn encode_q_component(s: &str) -> Result<String> {
     }
     Ok(encode(s, PctEncoded::QComponent))
 }
-/// Percent-decode an f-component according to the RFC
+/// Percent-encode an f-component according to the RFC. The [module documentation](self) lists
+/// the characters it encodes.
 ///
 /// ```
 /// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {

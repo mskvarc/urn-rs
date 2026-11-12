@@ -69,7 +69,7 @@ impl Parts {
 }
 
 /// `unreserved / sub-delims / ":" / "@"`: every pchar except the pct-encoded triplet.
-fn is_plain_pchar(c: char) -> bool {
+pub(crate) fn is_plain_pchar(c: char) -> bool {
     c.is_ascii_alphanumeric() || "-._~!$&'()*+,;=:@".contains(c)
 }
 

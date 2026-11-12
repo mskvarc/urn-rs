@@ -370,8 +370,9 @@ fn expected_build(nid: &str, nss: &str, r: Option<&str>, q: Option<&str>, f: Opt
 
 #[cfg(feature = "alloc")]
 proptest! {
-    /// Encoding any string gives a valid component that decodes back to the string. The
-    /// iterators agree with the allocating functions.
+    /// Encoding any string gives a valid component that decodes back to the string, and never
+    /// percent-encodes a character every component may hold as written (RFC 3986 section 2.3,
+    /// RFC 8141 section 2). The iterators agree with the allocating functions.
     #[test]
     fn encode_then_decode_round_trips(s in prop_oneof![any::<String>(), tricky(), component(Kind::R)]) {
         for codec in &CODECS {
@@ -383,6 +384,10 @@ proptest! {
             let encoded = encoded.map_err(|e| TestCaseError::fail(format!("{:?} encode {s:?}: {e:?}", codec.kind)))?;
             prop_assert!(reference::is_component(&encoded, codec.kind), "{:?} encode {s:?} gave {encoded:?}", codec.kind);
             prop_assert_eq!((codec.decode)(&encoded), Ok(s.clone()));
+            for triplet in encoded.split('%').skip(1) {
+                let byte = triplet.get(..2).and_then(|hex| u8::from_str_radix(hex, 16).ok());
+                prop_assert!(byte.is_some_and(|b| !reference::is_plain_pchar(char::from(b))), "{:?} encode {s:?} gave {encoded:?}", codec.kind);
+            }
             prop_assert_eq!(String::from_utf8((codec.encode_iter)(&s).collect()).ok(), Some(encoded.clone()));
             // Encoded hex digits are uppercase, so the builder keeps the component as it is.
             let built = builder_with(codec.kind, &encoded).build().map_err(|e| TestCaseError::fail(format!("{encoded:?}: {e:?}")))?;
