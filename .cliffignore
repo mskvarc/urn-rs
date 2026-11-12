@@ -1,0 +1,9 @@
+# Commits git-cliff leaves out of the changelog and the release notes, one full hash per line.
+
+# The workspace split, committed under a copy of the next commit's message.
+c59760d190ba34915ca5b54f863ba7baecca40f5
+# The author line in Cargo.toml, committed as "format the fuzz crate".
+df2d7d79fe0b2422e913a0f27dddb12e63e57611
+# The old release process: the changelog is generated at release now, and the version bump is part of the release.
+2f4c6c9101c74cd6f7066d38a42b7cbc804559c7
+3e189543cb94619bfcb239ff79a86f30a02f29e8
