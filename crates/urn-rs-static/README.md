@@ -32,7 +32,7 @@ Enable the `static` feature of `urn-rs` (recommended), which re-exports the macr
 cargo add urn-rs --features static
 ```
 
-Depending on this crate directly also works. The calling crate then needs `urn-rs` or `urn-rs-core` as a direct dependency, because the expansion refers to it. Renaming either in `Cargo.toml` is supported. Use the same release for every crate: the macro calls a hidden constructor that isn't covered by semver.
+Depending on this crate directly also works. The calling crate then needs `urn-rs` or `urn-rs-core` as a direct dependency, because the expansion refers to it. Renaming either in `Cargo.toml` is supported. The crates require each other at the exact same version, because the macro calls a hidden constructor that isn't covered by semver, so Cargo always resolves them to one release.
 
 ## MSRV
 

@@ -13,9 +13,12 @@ authors = [
 license = "0BSD OR MIT OR Apache-2.0"
 repository = "https://github.com/mskvarc/urn-rs/"
 
+# Exact pins: the `urn!` expansion calls `UrnSlice::__from_static_parts`, a hidden constructor
+# outside semver, so the three crates must always resolve to the same release. Bump these with
+# `workspace.package.version`.
 [workspace.dependencies]
-urn-rs-core = { path = "crates/urn-rs-core", version = "1.0.0", default-features = false }
-urn-rs-static = { path = "crates/urn-rs-static", version = "1.0.0" }
+urn-rs-core = { path = "crates/urn-rs-core", version = "=1.0.0", default-features = false }
+urn-rs-static = { path = "crates/urn-rs-static", version = "=1.0.0" }
 
 [workspace.lints.rust]
 missing_docs = "deny"
