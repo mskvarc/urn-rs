@@ -168,7 +168,9 @@ impl AsRef<[u8]> for Urn {
 /// ```
 /// # fn main() -> Result<(), urn_rs::Error> {
 /// use urn_rs::Urn;
-/// fn takes<S: AsRef<str>>(s: S) -> usize { s.as_ref().len() }
+/// fn takes<S: AsRef<str>>(s: S) -> usize {
+///     s.as_ref().len()
+/// }
 /// let u = Urn::try_from("urn:example:foo")?;
 /// assert_eq!(takes(&u), "urn:example:foo".len());
 /// # Ok(()) }

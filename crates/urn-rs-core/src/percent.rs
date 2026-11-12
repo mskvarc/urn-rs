@@ -203,7 +203,13 @@ pub fn decode_q_component(s: &str) -> Result<String> {
 ///     .q_pairs()
 ///     .map(|(k, v)| Ok((decode_q_param(k)?, v.map(decode_q_param).transpose()?)))
 ///     .collect::<Result<Vec<_>, urn_rs::Error>>()?;
-/// assert_eq!(decoded, [("drink".into(), Some("café".into())), ("path".into(), Some("/a b".into()))]);
+/// assert_eq!(
+///     decoded,
+///     [
+///         ("drink".into(), Some("café".into())),
+///         ("path".into(), Some("/a b".into()))
+///     ]
+/// );
 /// # Ok(()) } test_main().unwrap();
 /// ```
 ///
@@ -570,8 +576,13 @@ pub fn encode_q_component(s: &str) -> Result<String> {
 ///     .map(|(k, v)| format!("{}={}", encode_q_param(k), encode_q_param(v)))
 ///     .collect::<Vec<_>>()
 ///     .join("&");
-/// let urn = UrnBuilder::new("example", "nss").q_component(Some(&q)).build()?;
-/// assert_eq!(urn.as_str(), "urn:example:nss?=q=rock%20%26%20roll&tz=%2B01:00&path=%2Fa%3Db");
+/// let urn = UrnBuilder::new("example", "nss")
+///     .q_component(Some(&q))
+///     .build()?;
+/// assert_eq!(
+///     urn.as_str(),
+///     "urn:example:nss?=q=rock%20%26%20roll&tz=%2B01:00&path=%2Fa%3Db"
+/// );
 ///
 /// let decoded = urn
 ///     .q_pairs()
@@ -589,11 +600,12 @@ pub fn encode_q_param(s: &str) -> String {
 ///
 /// ```
 /// # use urn_rs::UrnBuilder; fn test_main() -> Result<(), urn_rs::Error> {
+/// let f = urn_rs::percent::encode_f_component("f-component (pretty much a fragment)")?;
+/// let urn = UrnBuilder::new("example", "nss")
+///     .f_component(Some(&f))
+///     .build()?;
 /// assert_eq!(
-///     UrnBuilder::new("example", "nss")
-///         .f_component(Some(&urn_rs::percent::encode_f_component("f-component (pretty much a fragment)")?))
-///         .build()?
-///         .as_str(),
+///     urn.as_str(),
 ///     "urn:example:nss#f-component%20(pretty%20much%20a%20fragment)"
 /// );
 /// # Ok(()) } test_main().unwrap();

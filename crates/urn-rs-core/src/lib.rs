@@ -227,7 +227,6 @@ type Result<T, E = Error> = result::Result<T, E>;
 /// directly or call `.as_str().to_owned()` after parsing.
 ///
 /// [`Borrow`]: core::borrow::Borrow
-///
 #[cfg_attr(
     feature = "alloc",
     doc = "Unlike [`Urn`]:
@@ -442,7 +441,6 @@ impl UrnSlice<'_> {
     /// Percent-encoded NSS (Namespace-specific string) identifying the resource.
     ///
     /// For example, in `urn:ietf:rfc:2648`, `rfc:2648` is the NSS.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_nss`]")]
     #[must_use]
     #[inline]
@@ -454,7 +452,6 @@ impl UrnSlice<'_> {
     ///
     /// # Errors
     /// Returns [`Error::InvalidNss`] in case of a validation failure.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_nss`]")]
     pub fn set_nss(&mut self, nss: &str) -> Result<()> {
         let (end, needs_norm) = validate_nss(nss);
@@ -479,7 +476,6 @@ impl UrnSlice<'_> {
     ///
     /// Should not be used for equivalence checks. As of the time of writing this, exact semantics
     /// aren't in the RFC.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_r_component`]")]
     #[must_use]
     #[inline]
@@ -492,7 +488,6 @@ impl UrnSlice<'_> {
     ///
     /// # Errors
     /// Returns [`Error::InvalidRComponent`] in case of a validation failure.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_r_component`]")]
     pub fn set_r_component(&mut self, r_component: Option<&str>) -> Result<()> {
         if let Some(rc) = r_component {
@@ -529,7 +524,6 @@ impl UrnSlice<'_> {
     /// the q-component is `op=map&lat=39.56&lon=-104.85`.
     ///
     /// Should not be used for equivalence checks.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_component`]")]
     #[must_use]
     #[inline]
@@ -553,11 +547,15 @@ impl UrnSlice<'_> {
     /// let pairs: Vec<_> = urn.q_pairs().collect();
     /// assert_eq!(
     ///     pairs,
-    ///     [("op", Some("map")), ("lat", Some("39.56")), ("lon", Some("-104.85")), ("verbose", None)]
+    ///     [
+    ///         ("op", Some("map")),
+    ///         ("lat", Some("39.56")),
+    ///         ("lon", Some("-104.85")),
+    ///         ("verbose", None)
+    ///     ]
     /// );
     /// # Ok(()) } test_main().unwrap();
     /// ```
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_q_param`]\n- [`percent::encode_q_param`]")]
     #[must_use]
     pub fn q_pairs(&self) -> QPairs<'_> {
@@ -571,7 +569,6 @@ impl UrnSlice<'_> {
     ///
     /// # Errors
     /// Returns [`Error::InvalidQComponent`] in case of a validation failure.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_q_component`]")]
     pub fn set_q_component(&mut self, q_component: Option<&str>) -> Result<()> {
         if let Some(qc) = q_component {
@@ -607,7 +604,6 @@ impl UrnSlice<'_> {
     /// In `urn:example:a123,z456#789`, the f-component is `789`.
     ///
     /// Should not be used for equivalence checks.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_f_component`]")]
     #[must_use]
     #[inline]
@@ -620,7 +616,6 @@ impl UrnSlice<'_> {
     ///
     /// # Errors
     /// Returns [`Error::InvalidFComponent`] in case of a validation failure.
-    ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::encode_f_component`]")]
     pub fn set_f_component(&mut self, f_component: Option<&str>) -> Result<()> {
         if let Some(fc) = f_component {
