@@ -22,14 +22,18 @@ assert_eq!(built.as_str(), "urn:isbn:0451450523");
 
 ## Why this fork
 
-Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). RFC behavior unchanged; this fork adds:
+Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/chayleaf/urn). Compared with upstream, this fork:
 
-- SWAR fast path and hex lookup tables for percent decode/encode.
-- Fewer allocations in builder, accessors, setters, serde.
-- `Ord` / `PartialOrd` on `Urn` and `UrnSlice`.
-- Criterion bench suite under `crates/urn-rs-core/benches/`.
-- Rust 2024 edition, MSRV 1.88.
-- Renamed to `urn-rs`.
+- Follows RFC 8141 more closely. It rejects a NID that ends in `-` and the reserved NID `urn`, the encoders leave `~` and `&` as written, and the decoders reject an empty NSS, r- or q-component.
+- Adds the `urn!` macro for compile-time checked literals (`static` feature).
+- Adds `q_pairs`, `percent::decode_q_param` and `percent::encode_q_param` for `key=value` q-components.
+- Uses a SWAR fast path and hex lookup tables for percent decode/encode.
+- Allocates less in the builder, accessors, setters and serde. Deserializing a `UrnSlice` borrows from the input.
+- Implements `Ord` / `PartialOrd` on `Urn` and `UrnSlice`.
+- Is tested against an RFC 8141 conformance corpus, with proptest properties, cargo-fuzz targets and cargo-mutants.
+- Has a Criterion bench suite under `crates/urn-rs-core/benches/`.
+- Uses the Rust 2024 edition, MSRV 1.88.
+- Is renamed to `urn-rs`.
 
 Credit and history preserved — see [Attribution](#attribution).
 
@@ -68,18 +72,22 @@ An invalid literal is a compile error, and nothing is parsed at runtime. `UrnSli
 
 ## Crates
 
-| Crate                                       | Contents                                                     |
-| ------------------------------------------- | ------------------------------------------------------------ |
-| [`urn-rs`](crates/urn-rs/)                  | The crate to depend on. Re-exports the other two.            |
-| [`urn-rs-core`](crates/urn-rs-core/)        | Types, parser, percent-encoding                              |
-| [`urn-rs-static`](crates/urn-rs-static/)    | The `urn!` proc macro                                        |
+| Crate                           | Contents                                          |
+| ------------------------------- | ------------------------------------------------- |
+| [`urn-rs`][crate-urn-rs]        | The crate to depend on. Re-exports the other two. |
+| [`urn-rs-core`][crate-core]     | Types, parser, percent-encoding                   |
+| [`urn-rs-static`][crate-static] | The `urn!` proc macro                             |
+
+[crate-urn-rs]: https://github.com/mskvarc/urn-rs/tree/master/crates/urn-rs
+[crate-core]: https://github.com/mskvarc/urn-rs/tree/master/crates/urn-rs-core
+[crate-static]: https://github.com/mskvarc/urn-rs/tree/master/crates/urn-rs-static
 
 ## Equivalence
 
 Equality compares only the significant portion of the URN (RFC 8141 §3):
 
-- NID is ASCII-case-insensitive.
-- NSS percent-encoding is normalized before comparison.
+- The `urn:` scheme and the NID are ASCII-case-insensitive.
+- The NSS is compared byte for byte, except that the hex digits of `%XX` triplets are case-insensitive (`%2c` equals `%2C`). Triplets aren't decoded, so `a~b` and `a%7Eb` are different URNs.
 - r-/q-/f-components are ignored.
 - Per-namespace lexical-equivalence rules from individual RFCs are **not** applied.
 

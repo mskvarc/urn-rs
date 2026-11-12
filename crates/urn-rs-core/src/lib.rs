@@ -441,7 +441,7 @@ impl UrnSlice<'_> {
     }
     /// Percent-encoded NSS (Namespace-specific string) identifying the resource.
     ///
-    /// For example, in `urn:ietf:rfc:2648`, `rfs:2648` is the NSS.
+    /// For example, in `urn:ietf:rfc:2648`, `rfc:2648` is the NSS.
     ///
     #[cfg_attr(feature = "alloc", doc = "# See also\n- [`percent::decode_nss`]")]
     #[must_use]
