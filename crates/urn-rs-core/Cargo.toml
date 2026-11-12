@@ -8,8 +8,6 @@ authors.workspace = true
 license.workspace = true
 readme = "README.md"
 repository.workspace = true
-keywords.workspace = true
-categories.workspace = true
 autobenches = false
 
 [package.metadata.docs.rs]

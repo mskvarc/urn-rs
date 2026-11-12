@@ -8,8 +8,8 @@ authors.workspace = true
 license.workspace = true
 readme = "README.md"
 repository.workspace = true
-keywords = ["urn", "macro", "const", "compile-time", "rfc8141"]
-categories = ["parser-implementations", "development-tools::procedural-macro-helpers"]
+keywords = ["urn", "macro", "compile-time", "literal", "rfc8141"]
+categories = ["parser-implementations", "no-std", "no-std::no-alloc"]
 
 [lib]
 proc-macro = true

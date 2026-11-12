@@ -8,8 +8,8 @@ authors.workspace = true
 license.workspace = true
 readme = "../../README.md"
 repository.workspace = true
-keywords.workspace = true
-categories.workspace = true
+keywords = ["urn", "uri", "rfc8141", "identifier", "percent-encoding"]
+categories = ["parser-implementations", "encoding", "no-std", "no-std::no-alloc", "web-programming"]
 
 [package.metadata.docs.rs]
 all-features = true
