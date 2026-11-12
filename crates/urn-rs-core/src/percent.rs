@@ -423,27 +423,55 @@ impl Iterator for EncodeIter<'_> {
 }
 
 /// Percent-encode an NSS byte-by-byte without allocating. See [`encode_nss`].
-#[must_use]
-pub const fn encode_nss_iter(s: &str) -> EncodeIter<'_> {
-    EncodeIter::new(s, PctEncoded::Nss)
+///
+/// ```
+/// # fn test_main() -> Result<(), urn_rs::Error> {
+/// use urn_rs::{Error, percent::encode_nss_iter};
+///
+/// let bytes: Vec<u8> = encode_nss_iter("test nss")?.collect();
+/// assert_eq!(bytes, b"test%20nss");
+/// assert_eq!(encode_nss_iter("").err(), Some(Error::InvalidNss));
+/// # Ok(()) } test_main().unwrap();
+/// ```
+///
+/// # Errors
+/// Returns [`Error::InvalidNss`] when `s` is empty, like [`encode_nss`].
+pub const fn encode_nss_iter(s: &str) -> Result<EncodeIter<'_>> {
+    if s.is_empty() {
+        return Err(Error::InvalidNss);
+    }
+    Ok(EncodeIter::new(s, PctEncoded::Nss))
 }
 
 /// Percent-encode an r-component byte-by-byte without allocating. See [`encode_r_component`].
-#[must_use]
-pub const fn encode_r_component_iter(s: &str) -> EncodeIter<'_> {
-    EncodeIter::new(s, PctEncoded::RComponent)
+///
+/// # Errors
+/// Returns [`Error::InvalidRComponent`] when `s` is empty, like [`encode_r_component`].
+pub const fn encode_r_component_iter(s: &str) -> Result<EncodeIter<'_>> {
+    if s.is_empty() {
+        return Err(Error::InvalidRComponent);
+    }
+    Ok(EncodeIter::new(s, PctEncoded::RComponent))
 }
 
 /// Percent-encode a q-component byte-by-byte without allocating. See [`encode_q_component`].
-#[must_use]
-pub const fn encode_q_component_iter(s: &str) -> EncodeIter<'_> {
-    EncodeIter::new(s, PctEncoded::QComponent)
+///
+/// # Errors
+/// Returns [`Error::InvalidQComponent`] when `s` is empty, like [`encode_q_component`].
+pub const fn encode_q_component_iter(s: &str) -> Result<EncodeIter<'_>> {
+    if s.is_empty() {
+        return Err(Error::InvalidQComponent);
+    }
+    Ok(EncodeIter::new(s, PctEncoded::QComponent))
 }
 
 /// Percent-encode an f-component byte-by-byte without allocating. See [`encode_f_component`].
-#[must_use]
-pub const fn encode_f_component_iter(s: &str) -> EncodeIter<'_> {
-    EncodeIter::new(s, PctEncoded::FComponent)
+///
+/// # Errors
+/// None. Like [`encode_f_component`], this returns a `Result` for consistency with the other
+/// encoders: the f-component may be empty.
+pub const fn encode_f_component_iter(s: &str) -> Result<EncodeIter<'_>> {
+    Ok(EncodeIter::new(s, PctEncoded::FComponent))
 }
 
 /// Percent-encode a NSS according to the RFC. The [module documentation](self) lists the

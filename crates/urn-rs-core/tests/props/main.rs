@@ -296,7 +296,7 @@ struct Codec {
     kind: Kind,
     encode: fn(&str) -> Result<String, Error>,
     decode: fn(&str) -> Result<String, Error>,
-    encode_iter: fn(&str) -> percent::EncodeIter<'_>,
+    encode_iter: fn(&str) -> Result<percent::EncodeIter<'_>, Error>,
     decode_iter: fn(&str) -> percent::DecodeIter<'_>,
 }
 
@@ -379,6 +379,7 @@ proptest! {
             let encoded = (codec.encode)(&s);
             if s.is_empty() && codec.kind != Kind::F {
                 prop_assert_eq!(encoded, Err(codec.kind.error()));
+                prop_assert_eq!((codec.encode_iter)(&s).err(), Some(codec.kind.error()));
                 continue;
             }
             let encoded = encoded.map_err(|e| TestCaseError::fail(format!("{:?} encode {s:?}: {e:?}", codec.kind)))?;
@@ -388,7 +389,7 @@ proptest! {
                 let byte = triplet.get(..2).and_then(|hex| u8::from_str_radix(hex, 16).ok());
                 prop_assert!(byte.is_some_and(|b| !reference::is_plain_pchar(char::from(b))), "{:?} encode {s:?} gave {encoded:?}", codec.kind);
             }
-            prop_assert_eq!(String::from_utf8((codec.encode_iter)(&s).collect()).ok(), Some(encoded.clone()));
+            prop_assert_eq!((codec.encode_iter)(&s).map(Iterator::collect::<Vec<u8>>), Ok(encoded.clone().into_bytes()));
             // Encoded hex digits are uppercase, so the builder keeps the component as it is.
             let built = builder_with(codec.kind, &encoded).build().map_err(|e| TestCaseError::fail(format!("{encoded:?}: {e:?}")))?;
             prop_assert_eq!(component_of(&built, codec.kind), Some(encoded.as_str()));

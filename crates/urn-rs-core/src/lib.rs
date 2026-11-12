@@ -1302,24 +1302,30 @@ mod tests {
         };
         let input = "hello world!😂";
 
-        let via_iter: Vec<u8> = encode_nss_iter(input).collect();
+        let via_iter: Vec<u8> = encode_nss_iter(input).unwrap().collect();
         assert_eq!(via_iter, encode_nss(input).unwrap().into_bytes());
 
-        let via_iter: Vec<u8> = encode_r_component_iter(input).collect();
+        let via_iter: Vec<u8> = encode_r_component_iter(input).unwrap().collect();
         assert_eq!(via_iter, encode_r_component(input).unwrap().into_bytes());
 
-        let via_iter: Vec<u8> = encode_q_component_iter(input).collect();
+        let via_iter: Vec<u8> = encode_q_component_iter(input).unwrap().collect();
         assert_eq!(via_iter, encode_q_component(input).unwrap().into_bytes());
 
-        let via_iter: Vec<u8> = encode_f_component_iter(input).collect();
+        let via_iter: Vec<u8> = encode_f_component_iter(input).unwrap().collect();
         assert_eq!(via_iter, encode_f_component(input).unwrap().into_bytes());
 
         // Context-dependent handling: leading '?' in r-component must be encoded;
         // non-leading '?' (when not followed by '=') passes through.
-        let r = encode_r_component_iter("?x").collect::<Vec<u8>>();
+        let r = encode_r_component_iter("?x").unwrap().collect::<Vec<u8>>();
         assert_eq!(r, encode_r_component("?x").unwrap().into_bytes());
-        let r = encode_r_component_iter("x?y").collect::<Vec<u8>>();
+        let r = encode_r_component_iter("x?y").unwrap().collect::<Vec<u8>>();
         assert_eq!(r, encode_r_component("x?y").unwrap().into_bytes());
+
+        // Empty input gets the same verdict as from the allocating functions.
+        assert_eq!(encode_nss_iter("").err(), Some(Error::InvalidNss));
+        assert_eq!(encode_r_component_iter("").err(), Some(Error::InvalidRComponent));
+        assert_eq!(encode_q_component_iter("").err(), Some(Error::InvalidQComponent));
+        assert_eq!(encode_f_component_iter("").map(Iterator::count), Ok(0));
     }
 
     #[test]
@@ -1571,7 +1577,7 @@ mod tests {
             encode_r_component,
             encode_r_component_iter,
         };
-        type Encoders = (fn(&str) -> Result<String>, fn(&str) -> percent::EncodeIter<'_>);
+        type Encoders = (fn(&str) -> Result<String>, fn(&str) -> Result<percent::EncodeIter<'_>>);
         let nss: Encoders = (encode_nss, encode_nss_iter);
         let r: Encoders = (encode_r_component, encode_r_component_iter);
         let q: Encoders = (encode_q_component, encode_q_component_iter);
@@ -1600,7 +1606,7 @@ mod tests {
         ];
         for &((encode, encode_iter), input, want) in cases {
             assert_eq!(encode(input).as_deref(), Ok(want), "{input:?}");
-            assert_eq!(encode_iter(input).collect::<Vec<u8>>(), want.as_bytes(), "{input:?}");
+            assert_eq!(encode_iter(input).map(Iterator::collect::<Vec<u8>>), Ok(want.as_bytes().to_vec()), "{input:?}");
         }
     }
 

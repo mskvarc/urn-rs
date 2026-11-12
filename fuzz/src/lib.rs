@@ -175,7 +175,7 @@ struct Codec {
     kind: Kind,
     encode: fn(&str) -> Result<String, Error>,
     decode: fn(&str) -> Result<String, Error>,
-    encode_iter: fn(&str) -> percent::EncodeIter<'_>,
+    encode_iter: fn(&str) -> Result<percent::EncodeIter<'_>, Error>,
     decode_iter: fn(&str) -> percent::DecodeIter<'_>,
 }
 
@@ -233,12 +233,13 @@ pub fn percent(data: &[u8]) {
         let encoded = (codec.encode)(s);
         if s.is_empty() && kind != Kind::F {
             assert_eq!(encoded, Err(kind.error()), "{kind:?} encode \"\"");
+            assert_eq!((codec.encode_iter)(s).err(), Some(kind.error()), "{kind:?} encode_iter \"\"");
             continue;
         }
         let encoded = encoded.unwrap_or_else(|e| panic!("{kind:?} encode {s:?}: {e:?}"));
         assert!(reference::is_component(&encoded, kind), "{kind:?} encode {s:?} gave {encoded:?}");
         assert_eq!((codec.decode)(&encoded).as_deref(), Ok(s), "{kind:?} round trip {s:?}");
-        assert_eq!((codec.encode_iter)(s).collect::<Vec<u8>>(), encoded.as_bytes(), "{kind:?} encode_iter {s:?}");
+        assert_eq!((codec.encode_iter)(s).map(Iterator::collect::<Vec<u8>>).as_deref(), Ok(encoded.as_bytes()), "{kind:?} encode_iter {s:?}");
     }
 
     let encoded = percent::encode_q_param(s);
