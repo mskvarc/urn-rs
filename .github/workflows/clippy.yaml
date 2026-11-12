@@ -30,6 +30,8 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      # The fuzz targets are a workspace of their own, which the line above does not reach.
+      - run: cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
 
   # A caller can build with any subset of the features, so a warning that only a build without some feature shows
   # reaches some caller. Each run builds one package: in a workspace build, dev-dependencies turn on `std`.

@@ -1,7 +1,9 @@
 name: fuzz
 
-# A short run of every target on each push to master, to catch a regression soon after it lands. It isn't a pull
-# request check or a release gate: a fuzzer can find an old bug at any time, and that shouldn't block unrelated work.
+# A short run of every target on each push to master, so a target that stops building or a regression is caught soon
+# after it lands. It isn't a pull request check or a release gate: a fuzzer can find an old bug at any time, and that
+# shouldn't block unrelated work. libFuzzer prints a crashing input to the job log, which is public, so a long campaign
+# runs where its log stays private. New inputs go to a scratch directory, and nothing is uploaded.
 on:
   push:
     branches: [master]
@@ -14,34 +16,54 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The installed cargo-fuzz is a static musl binary and defaults to building for the platform it was built for. The
+  # address sanitizer cannot run against a statically linked libc, so the runner's own target is named.
+  FUZZ_TARGET: x86_64-unknown-linux-gnu
+
 jobs:
   fuzz:
-    name: cargo fuzz
+    name: cargo fuzz run ${{ matrix.target }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - differential
+          - parse
+          - percent
+          - setters
     steps:
       - uses: actions/checkout@v7
-      - name: Install nightly
-        run: rustup toolchain install nightly --profile minimal
+      - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: fuzz -> target
-      # The fuzz crate mirrors the urn-rs features, so this builds every target against the no_std library.
-      - run: cargo +nightly fuzz build --no-default-features
-      - run: cargo +nightly fuzz build
-      - name: Seed the corpus from the conformance cases
-        run: cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example seed
-      - name: Run each target for a minute
-        run: |
-          set -euo pipefail
-          for target in parse percent setters differential; do
-            cargo +nightly fuzz run "${target}" -- -dict=fuzz/urn.dict -max_total_time=60
-          done
-      - name: Upload the crashing inputs
-        if: failure()
-        uses: actions/upload-artifact@v7
+          workspaces: fuzz
+      - run: cargo +nightly fuzz build --target "${FUZZ_TARGET}" ${{ matrix.target }}
+      # Writes the conformance cases into fuzz/corpus/ as seeds.
+      - run: cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example seed
+      # libFuzzer refuses a corpus directory that does not exist.
+      - run: mkdir -p "${RUNNER_TEMP}/corpus"
+      - run: >-
+          cargo +nightly fuzz run --target "${FUZZ_TARGET}" ${{ matrix.target }}
+          "${RUNNER_TEMP}/corpus" fuzz/corpus/${{ matrix.target }}
+          -- -dict=fuzz/urn.dict -max_total_time=60 -artifact_prefix="${RUNNER_TEMP}/"
+
+  # The fuzz crate mirrors the urn-rs features, so this builds every target that doesn't need `alloc` against the
+  # no_std library.
+  build-no-std:
+    name: cargo fuzz build --no-default-features
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
         with:
-          name: fuzz-artifacts
-          path: fuzz/artifacts
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo +nightly fuzz build --target "${FUZZ_TARGET}" --no-default-features

@@ -61,6 +61,7 @@ Each check below runs in CI and must pass with no warnings.
 | Format the fuzz crate | `cargo +nightly fmt --manifest-path fuzz/Cargo.toml --check` |
 | TOML format | `taplo fmt --check` |
 | Clippy | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` |
+| Clippy on the fuzz crate | `cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings` |
 | Clippy per feature | `cargo clippy -p urn-rs-core --all-targets --no-default-features --features "<set>" --locked -- -D warnings`, once for each set: none, `alloc`, `serde` and `alloc,serde`. Then the same for `-p urn-rs` with none, `alloc`, `serde` and `static` |
 | Tests | `cargo test --workspace --all-features --locked` |
 | Tests per feature | `cargo test -p urn-rs-core --no-default-features --features "<set>" --locked`, once for each set: none, `alloc`, `serde` and `alloc,serde` |
