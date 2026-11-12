@@ -20,14 +20,14 @@ default = ["std"]
 alloc = ["serde?/alloc"]
 
 [dependencies]
-serde = { version = "1.0.228", default-features = false, optional = true }
-thiserror = { version = "2.0.18", default-features = false }
+serde = { version = "1.0.229", default-features = false, optional = true }
+thiserror = { version = "2.0.21", default-features = false }
 
 [dev-dependencies]
 criterion = "0.8.2"
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 # Lets the doctests, tests and benches use the `urn_rs::` paths users see. Path-only, so
 # `cargo publish` drops it and publishing has no cycle. No default features, so it doesn't
 # turn on `std` in no_std test builds.
