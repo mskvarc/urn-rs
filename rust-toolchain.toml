@@ -1,5 +1,5 @@
 # Stable, so CI and local builds use the same compiler and the published crates never depend on nightly-only
 # behavior. rustfmt and cargo-fuzz run on nightly (`cargo +nightly`), and the MSRV check on `cargo +1.88.0`.
 [toolchain]
-channel = "1.99.1"
+channel = "1.100.0"
 components = ["clippy"]
