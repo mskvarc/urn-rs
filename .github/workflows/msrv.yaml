@@ -1,0 +1,31 @@
+name: msrv
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: msrv-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# A Dependabot pull request runs the quick check in check.yaml instead.
+jobs:
+  msrv:
+    name: cargo test on the msrv
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Must match `rust-version` in Cargo.toml.
+      - name: Install the msrv toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      # The tests and benches build on the msrv too, so contributors can work on it.
+      - run: cargo +1.88.0 test --workspace --all-features --locked
+      - run: cargo +1.88.0 check -p urn-rs-core --no-default-features --locked

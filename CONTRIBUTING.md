@@ -40,36 +40,41 @@ Open an issue first for new functionality, a new public item, a new dependency o
 
 ## Setting Up
 
-Formatting needs nightly `rustfmt`, because `rustfmt.toml` uses unstable import options. cargo-fuzz needs nightly too. The MSRV check needs Rust 1.88.0, the `rust-version` in `Cargo.toml`.
+The toolchain is pinned in `rust-toolchain.toml`, and `rustup` installs it on first use. Formatting needs nightly `rustfmt`, because `rustfmt.toml` uses unstable import options. cargo-fuzz needs nightly too. The MSRV check needs Rust 1.88.0, the `rust-version` in `Cargo.toml`. The `no_std` check needs a target without a standard library.
 
 ```sh
 rustup toolchain install nightly --profile minimal --component rustfmt
 rustup toolchain install 1.88.0 --profile minimal
-cargo install --locked cargo-fuzz cargo-mutants
+rustup target add thumbv7em-none-eabihf
+cargo install --locked taplo-cli cargo-deny cargo-machete cargo-fuzz cargo-mutants
 ```
 
 The default feature is `std`. The others are `alloc`, `serde` and `static`.
 
 ## Before You Open a Pull Request
 
-Each check below must pass with no warnings.
+Each check below runs in CI and must pass with no warnings.
 
 | Check | Command |
 | --- | --- |
 | Format | `cargo +nightly fmt --all --check` |
 | Format the fuzz crate | `cargo +nightly fmt --manifest-path fuzz/Cargo.toml --check` |
-| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
-| Clippy per feature | `cargo clippy -p urn-rs-core --all-targets --no-default-features --features "<set>" -- -D warnings`, once for each set: none, `alloc`, `serde` and `alloc,serde`. Then the same for `-p urn-rs` with none, `alloc`, `serde` and `static` |
-| Tests | `cargo test --workspace --all-features` |
-| Tests per feature | `cargo test -p urn-rs-core --no-default-features --features "<set>"`, once for each set: none, `alloc`, `serde` and `alloc,serde` |
-| MSRV | `cargo +1.88.0 test --workspace --all-features` and `cargo +1.88.0 check -p urn-rs-core --no-default-features` |
-| Rustdoc | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`, then again with `-p urn-rs-core --no-default-features` in place of `--workspace --all-features` |
-| Rustdoc as docs.rs builds it | `RUSTDOCFLAGS="-D warnings --cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features` |
+| TOML format | `taplo fmt --check` |
+| Clippy | `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` |
+| Clippy per feature | `cargo clippy -p urn-rs-core --all-targets --no-default-features --features "<set>" --locked -- -D warnings`, once for each set: none, `alloc`, `serde` and `alloc,serde`. Then the same for `-p urn-rs` with none, `alloc`, `serde` and `static` |
+| Tests | `cargo test --workspace --all-features --locked` |
+| Tests per feature | `cargo test -p urn-rs-core --no-default-features --features "<set>" --locked`, once for each set: none, `alloc`, `serde` and `alloc,serde` |
+| `no_std` | `cargo build -p urn-rs --no-default-features --target thumbv7em-none-eabihf --locked`, then again with `--features alloc,serde,static` |
+| MSRV | `cargo +1.88.0 test --workspace --all-features --locked` and `cargo +1.88.0 check -p urn-rs-core --no-default-features --locked` |
+| Rustdoc | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked`, then again with `-p urn-rs-core --no-default-features` in place of `--workspace --all-features` |
+| Rustdoc as docs.rs builds it | `RUSTDOCFLAGS="-D warnings --cfg docsrs" cargo +nightly doc --workspace --no-deps --all-features --locked` |
+| Licenses, advisories, bans and sources | `cargo deny check` |
+| Unused dependencies | `cargo machete` |
 | Fuzz targets | `cargo +nightly fuzz build`, then again with `--no-default-features` |
 
 Run the per-feature checks one package at a time. In a workspace build, dev-dependencies turn on `std`, which hides warnings that only a `no_std` build shows.
 
-The lint levels in `Cargo.toml`, `clippy.toml` and `rustfmt.toml` are project policy. Fix the code, not the lint, and do not lower a level. `#[allow(...)]` is denied. If a lint is wrong for one specific case, use `#[expect(..., reason = "...")]` and say why in the pull request.
+The lint levels in `Cargo.toml`, `clippy.toml`, `rustfmt.toml`, `.taplo.toml` and `deny.toml` are project policy. Fix the code, not the lint, and do not lower a level. `#[allow(...)]` is denied. If a lint is wrong for one specific case, use `#[expect(..., reason = "...")]` and say why in the pull request.
 
 ## Tests
 
@@ -91,6 +96,8 @@ cargo +nightly fuzz run parse -- -dict=fuzz/urn.dict -max_total_time=300
 
 Add `--no-default-features` to fuzz the `no_std` build. A crash found this way becomes a case in the conformance corpus or a unit test.
 
+CI runs each target for a minute on every push to master. A pull request isn't held up by it, because a fuzzer can find an old bug at any time.
+
 ## Mutation Testing
 
 Every mutant cargo-mutants generates must be caught by the tests, except the equivalent mutants listed in `.cargo/mutants.toml`. Each entry there matches one mutant by file, line and column, and says why no test can catch it.
@@ -102,11 +109,14 @@ cargo mutants --all-features --file crates/urn-rs-core/src/percent.rs
 
 Always run with `--all-features`. cargo-mutants ignores `cfg`, so in another feature set it reports code that was never compiled as missed. When an edit moves a listed line, its mutant shows up as missed: check that the reason still holds, then update the line and column.
 
+CI runs the full set weekly, in four shards, and on demand from the Actions tab.
+
 ## Dependencies
 
 - `urn-rs-core` depends only on `thiserror` and the optional `serde`. A new dependency needs an issue first, and one `urn-rs-core` uses has to work without `std`.
 - Set `default-features = false` when a dependency's defaults pull in `std` or something the crate does not use, and list only the features it needs.
 - Declare full versions (`1.2.3`, never `1` or `1.2`) and no range operators, except the `=` pins between the urn-rs crates. Keep every dependency table in alphabetical order.
+- `Cargo.lock` and `fuzz/Cargo.lock` are committed, and CI builds with `--locked`.
 
 ## Commits
 

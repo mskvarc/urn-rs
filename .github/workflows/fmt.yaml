@@ -1,0 +1,28 @@
+name: fmt
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: fmt-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# A Dependabot pull request runs the quick check in check.yaml instead.
+jobs:
+  fmt:
+    name: cargo +nightly fmt --check
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # rustfmt.toml uses unstable import options, which only nightly rustfmt honours.
+      - name: Install nightly rustfmt
+        run: rustup toolchain install nightly --profile minimal --component rustfmt
+      - run: cargo +nightly fmt --all --check
+      # The fuzz crate is a workspace of its own, so `--all` doesn't reach it.
+      - run: cargo +nightly fmt --manifest-path fuzz/Cargo.toml --check

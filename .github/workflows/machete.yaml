@@ -1,0 +1,24 @@
+name: machete
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: machete-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# A Dependabot pull request runs the quick check in check.yaml instead.
+jobs:
+  machete:
+    name: cargo machete
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Without `--with-metadata`: no dependency is renamed, and the metadata mode misses criterion in the benches.
+      - uses: bnjbvr/cargo-machete@v0.9.2

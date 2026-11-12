@@ -1,0 +1,39 @@
+name: doc
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: doc-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  RUSTDOCFLAGS: -D warnings
+
+# A Dependabot pull request runs the quick check in check.yaml instead.
+jobs:
+  doc:
+    name: cargo doc
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned toolchain
+        run: rustup toolchain install --profile minimal
+      - name: Install nightly
+        run: rustup toolchain install nightly --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo doc --workspace --no-deps --all-features --locked
+      # Intra-doc links differ without `alloc`, so the no_std docs get their own build.
+      - run: cargo doc -p urn-rs-core --no-deps --no-default-features --locked
+      # As docs.rs builds it: nightly, with `--cfg docsrs` for the feature badges.
+      - run: cargo +nightly doc --workspace --no-deps --all-features --locked
+        env:
+          RUSTDOCFLAGS: -D warnings --cfg docsrs

@@ -1,0 +1,76 @@
+name: clippy
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: clippy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+
+# A Dependabot pull request runs the quick check in check.yaml instead.
+jobs:
+  clippy:
+    name: cargo clippy
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned toolchain
+        run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  # A caller can build with any subset of the features, so a warning that only a build without some feature shows
+  # reaches some caller. Each run builds one package: in a workspace build, dev-dependencies turn on `std`.
+  clippy-features:
+    name: cargo clippy (${{ matrix.package }}, ${{ matrix.name }})
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: urn-rs-core
+            name: no features
+            features: ""
+          - package: urn-rs-core
+            name: alloc
+            features: alloc
+          - package: urn-rs-core
+            name: serde
+            features: serde
+          - package: urn-rs-core
+            name: alloc, serde
+            features: alloc,serde
+          - package: urn-rs
+            name: no features
+            features: ""
+          - package: urn-rs
+            name: alloc
+            features: alloc
+          - package: urn-rs
+            name: serde
+            features: serde
+          - package: urn-rs
+            name: static
+            features: static
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned toolchain
+        run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.package }}-${{ matrix.name }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo clippy -p ${{ matrix.package }} --all-targets --no-default-features --features "${{ matrix.features }}" --locked -- -D warnings

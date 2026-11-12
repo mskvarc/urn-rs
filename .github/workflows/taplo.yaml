@@ -1,0 +1,40 @@
+name: taplo
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "**/*.toml"
+      - ".taplo.toml"
+      - ".github/workflows/taplo.yaml"
+  pull_request:
+    paths:
+      - "**/*.toml"
+      - ".taplo.toml"
+      - ".github/workflows/taplo.yaml"
+
+concurrency:
+  group: taplo-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# A Dependabot pull request runs the quick check in check.yaml instead.
+jobs:
+  taplo:
+    name: taplo fmt --check
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    env:
+      TAPLO_VERSION: "0.10.0"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install taplo
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}/taplo-linux-x86_64.gz" \
+            | gunzip > "${RUNNER_TEMP}/taplo"
+          chmod +x "${RUNNER_TEMP}/taplo"
+      - run: |
+          "${RUNNER_TEMP}/taplo" fmt --check --diff

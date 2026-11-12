@@ -1,0 +1,26 @@
+# Permissive-only allow list. A license is added when a dependency first brings it in; an allowance no dependency
+# uses is a warning. Unicode-3.0 comes with unicode-ident, which the proc macros (`urn!` and thiserror's derive) build
+# with.
+
+[graph]
+all-features = true
+
+[licenses]
+confidence-threshold = 0.93
+allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# urn-rs-core and urn-rs-static take `urn-rs` as a path-only dev-dependency, so their doctests use the paths users see.
+# `cargo publish` drops it, so it never reaches crates.io.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,47 @@
+name: fuzz
+
+# A short run of every target on each push to master, to catch a regression soon after it lands. It isn't a pull
+# request check or a release gate: a fuzzer can find an old bug at any time, and that shouldn't block unrelated work.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: cargo fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install nightly
+        run: rustup toolchain install nightly --profile minimal
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz -> target
+      # The fuzz crate mirrors the urn-rs features, so this builds every target against the no_std library.
+      - run: cargo +nightly fuzz build --no-default-features
+      - run: cargo +nightly fuzz build
+      - name: Seed the corpus from the conformance cases
+        run: cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example seed
+      - name: Run each target for a minute
+        run: |
+          set -euo pipefail
+          for target in parse percent setters differential; do
+            cargo +nightly fuzz run "${target}" -- -dict=fuzz/urn.dict -max_total_time=60
+          done
+      - name: Upload the crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts

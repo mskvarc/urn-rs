@@ -1,0 +1,31 @@
+name: no-std
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: no-std-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# thumbv7em-none-eabihf has no standard library, so a build that pulls in `std`, directly or through a dependency,
+# fails here instead of in a caller's firmware. A Dependabot pull request runs the quick check in check.yaml instead.
+jobs:
+  no-std:
+    name: cargo build (thumbv7em-none-eabihf)
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned toolchain
+        run: rustup toolchain install --profile minimal
+      - run: rustup target add thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo build -p urn-rs --no-default-features --target thumbv7em-none-eabihf --locked
+      - run: cargo build -p urn-rs --no-default-features --features alloc,serde,static --target thumbv7em-none-eabihf --locked

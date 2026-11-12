@@ -1,0 +1,35 @@
+name: deny
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: deny-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Unlike the other checks, this one also runs on Dependabot pull requests: an update can bring in a new license or a
+# known vulnerability, and the check needs no build.
+jobs:
+  deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks:
+          - licenses sources
+          - advisories
+          - bans
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
