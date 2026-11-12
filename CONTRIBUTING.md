@@ -120,15 +120,51 @@ CI runs the full set weekly, in four shards, and on demand from the Actions tab.
 
 ## Commits
 
-Commit messages follow [Conventional Commits](https://www.conventionalcommits.org), written in lowercase. The types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `build`, `ci` and `chore`. Mark a breaking change with `!`, as in `feat!: return a result from the encode iterators`.
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org), written in lowercase. The types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `style`, `build`, `ci` and `chore`. Mark a breaking change with `!`, as in `feat!: return a result from the encode iterators`, and say in a `BREAKING CHANGE:` footer what callers have to change.
 
-The changelog is generated from commit messages with `git-cliff`, and a commit that does not follow the format is left out of it.
+An issue goes on a line of its own in the last paragraph, never in the header. Write `Closes #N` when the commit finishes the issue and `Refs #N` when it is partial.
+
+### In the Changelog
+
+The changelog and the release notes are built with `git-cliff` from commit headers and footers, with the summary as written, so every commit is also a changelog entry. A commit that does not follow the format is left out.
+
+- A breaking commit is listed once, under Breaking changes, with its summary followed by its `BREAKING CHANGE:` footer.
+- The `security` scope, as in `fix(security): ...`, files a commit under Security. A summary that starts with `deprecate` files it under Deprecations.
+- Every other commit is grouped by its type, in this order: features, bug fixes, performance, refactors, documentation, dependency updates, build, CI, tests, style and chores.
+- `Closes #N` and `Refs #N` become links to the issues.
+- Put `@` words in backticks, because GitHub links a bare one to the account of that name.
 
 ## Pull Requests
 
 - Keep a pull request to one concern.
 - A change to the public API updates every caller, test, doctest and README in the same pull request.
 - A `perf` change includes the Criterion results from `cargo bench` before and after. The benches are in `crates/urn-rs-core/benches/`.
+
+## Releasing
+
+A release is cut by pushing a tag: `vX.Y.Z`, or `vX.Y.Z-alpha.N`, `-beta.N` or `-rc.N` for a pre-release. The `release` workflow checks that the tag matches `workspace.package.version` and points at a commit on master, publishes the three crates to crates.io, and creates the GitHub release.
+
+1. Set `workspace.package.version` and the two `=` pins in `[workspace.dependencies]` to the new version.
+2. Write the release notes to a Markdown file outside the repository, here `../vX.Y.Z.md`. Use these headings, and leave out any that would be empty:
+   - `### Highlights` for the changes worth reading first, described in prose.
+   - `### Upgrade notes` for what callers have to change when they move to the release.
+   - `### Security` for the write-up of each advisory the release fixes, with its identifiers.
+
+   Write every link as an absolute URL, because Dependabot and Renovate copy the release notes into the update pull requests of the crate's users.
+3. Check that `git cliff --bumped-version` prints `vX.Y.Z`. It reads the commits since the last stable release and calls for a major release when one of them is breaking, a minor release when one adds a feature, and a patch release otherwise.
+4. Write the changelog with `git cliff --tag vX.Y.Z --with-tag-message "$(cat ../vX.Y.Z.md)" -o CHANGELOG.md`. It rewrites the whole file. Never pass `--unreleased` or `--prepend`, which stop at the newest pre-release tag and leave out the commits before it.
+5. Commit the version, `Cargo.lock` and the changelog with a `chore(release): vX.Y.Z` header, which keeps the commit itself out of the changelog, and push it to master.
+6. Once CI has passed on that commit, tag it with `git tag -a --cleanup=verbatim -F ../vX.Y.Z.md vX.Y.Z` and push the tag. Without `--cleanup=verbatim`, git deletes every line of the message that starts with `#`, so the headings would be lost.
+
+The GitHub release and the release's entry in `CHANGELOG.md` open with the tag message, followed by the changes since the previous stable release. To see the release body as the workflow will build it, run this before tagging:
+
+```sh
+git cliff "$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')..HEAD" --tag vX.Y.Z --with-tag-message "$(cat ../vX.Y.Z.md)" --strip all
+```
+
+A pre-release takes steps 1, 5 and 6 only, with the version set to `X.Y.Z-rc.N` (or `alpha.N`, `beta.N`). Its notes are optional and go in the tag message the same way. `CHANGELOG.md` stays as it is: it lists stable releases only, and a pre-release's changes appear under the stable release that follows it.
+
+To keep a commit out of the changelog, such as a change and its revert in the same release, add its full hash to `.cliffignore` at the root of the repository, one hash per line.
 
 ## License
 

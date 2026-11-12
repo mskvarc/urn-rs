@@ -68,31 +68,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Every release, a pre-release too, lists the changes since the previous stable release. git-cliff's --current
+      # stops at the newest tag of any kind, so the range names the stable tag. Via env: never parsed as shell.
+      - name: Resolve the release notes range
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          range=""
+          if previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' "${TAG}^" 2>/dev/null)"; then
+            range="${previous}..${TAG}"
+          fi
+          echo "range=${range}" >> "$GITHUB_OUTPUT"
+
+      # The notes open with the annotated tag's message. The template's commit_groups filter needs git-cliff 2.14.
       - name: Generate release notes
-        id: changelog
         uses: orhun/git-cliff-action@v4
         with:
+          version: v2.14.2
           config: cliff.toml
-          args: --current --strip all
-
-      - name: Determine release type
-        id: release_type
-        run: |
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
-            echo "makeLatest=false" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "makeLatest=true" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
+          args: ${{ steps.notes.outputs.range }} --strip all -o RELEASE_NOTES.md
 
       - name: Create release
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          draft: false
-          makeLatest: ${{ steps.release_type.outputs.makeLatest }}
-          prerelease: ${{ steps.release_type.outputs.prerelease }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          makeLatest: ${{ !contains(github.ref_name, '-') }}
           name: ${{ github.ref_name }}
-          body: ${{ steps.changelog.outputs.content }}
+          bodyFile: RELEASE_NOTES.md
           token: ${{ secrets.GITHUB_TOKEN }}
