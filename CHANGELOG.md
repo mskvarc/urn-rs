@@ -70,6 +70,7 @@ The first stable release. urn-rs now follows [RFC 8141](https://datatracker.ietf
 
 #### 👷 CI
 
+- build fuzz targets for the gnu target
 - open release notes with the tag message
 - add workflows, cargo-deny and dependabot updates
 
