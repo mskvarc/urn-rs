@@ -36,7 +36,7 @@ Depending on this crate directly also works. The calling crate then needs `urn-r
 
 ## MSRV
 
-Rust 1.85 (edition 2024).
+Rust 1.88 (edition 2024).
 
 ## License
 

@@ -18,7 +18,7 @@ exclude_re = [
     # `TriCow::ensure_owned` promotes a borrowed buffer before percent-normalizing it, so the
     # buffer is copied once instead of being checked again triplet by triplet.
     # `make_uppercase` copies a borrowed buffer itself when the range changes.
-    "^crates/urn-rs-core/src/cow\\.rs:86:9: replace TriCow<'_>::ensure_owned with \\(\\)$",
+    "^crates/urn-rs-core/src/cow\\.rs:84:9: replace TriCow<'_>::ensure_owned with \\(\\)$",
 
     # `PLAIN_PCHAR = 1 << 0`: `1 >> 0` is the same value.
     "^crates/urn-rs-core/src/tables\\.rs:18:38: replace << with >>$",

@@ -69,7 +69,7 @@ pub(crate) fn mixed_pct(len_hint: usize) -> String {
     let mut s = String::new();
     let mut i = 0usize;
     while s.len() < len_hint {
-        if i % 5 == 0 {
+        if i.is_multiple_of(5) {
             s.push_str("%2a");
         } else {
             s.push(char::from(b"abcdefghijklmnopqrstuvwxyz"[i % 26]));

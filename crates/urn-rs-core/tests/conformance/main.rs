@@ -67,7 +67,7 @@ fn mut_str<'b>(buf: &'b mut [u8; MAX_INPUT], input: &str) -> &'b mut str {
 }
 
 fn assert_parts(case: &Valid, urn: &UrnSlice<'_>, path: &str) {
-    let ctx = format_args!("{path}: {:?} ({})", case.input, case.source);
+    let ctx = format!("{path}: {:?} ({})", case.input, case.source);
     assert_eq!(urn.as_str(), case.normalized, "normalized form, {ctx}");
     assert_eq!(urn.nid(), case.nid, "nid, {ctx}");
     assert_eq!(urn.nss(), case.nss, "nss, {ctx}");

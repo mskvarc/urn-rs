@@ -28,7 +28,7 @@ Fork of [`urn`](https://crates.io/crates/urn) by [chayleaf](https://github.com/c
 - Fewer allocations in builder, accessors, setters, serde.
 - `Ord` / `PartialOrd` on `Urn` and `UrnSlice`.
 - Criterion bench suite under `crates/urn-rs-core/benches/`.
-- Rust 2024 edition, MSRV 1.85.
+- Rust 2024 edition, MSRV 1.88.
 - Renamed to `urn-rs`.
 
 Credit and history preserved — see [Attribution](#attribution).
@@ -97,7 +97,7 @@ Criterion output: `target/criterion/`.
 
 ## MSRV
 
-Rust 1.85 (edition 2024).
+Rust 1.88 (edition 2024).
 
 ## Attribution
 
