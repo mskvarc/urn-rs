@@ -3,7 +3,7 @@ BSD Zero Clause License (0BSD)
 
 Copyright © 2023, chayleaf
 
-Copyright © 2026, Matej Škvarč <matej.skvarc@senlab.io>
+Copyright © 2026, Matej Škvarč <matej@skvarc.com>
 
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
 
